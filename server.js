@@ -1,6 +1,7 @@
 import express from 'express';
 import dotenv from 'dotenv';
 import axios from 'axios';
+import { simulateStream } from './streaming.js';
 
 dotenv.config();
 
@@ -70,28 +71,38 @@ app.post('/v1/chat/completions', async (req, res) => {
 
     console.log('Received Straico response');
 
-    const response = {
-      id: `chatcmpl-${Date.now()}`,
-      object: 'chat.completion',
-      created: Math.floor(Date.now() / 1000),
-      model: straicoResponse.data.model || model,
-      choices: straicoResponse.data.choices || [{
-        index: 0,
-        message: {
-          role: 'assistant',
-          content: straicoResponse.data.choices[0]?.message?.content || '',
-        },
-        finish_reason: straicoResponse.data.choices[0]?.finish_reason || 'stop',
-      }],
-      usage: straicoResponse.data.usage || {
-        prompt_tokens: 0,
-        completion_tokens: 0,
-        total_tokens: 0,
-      },
-    };
+    const aiResponse = straicoResponse.data.choices[0]?.message?.content || '';
 
-    console.log('Returning formatted response');
-    res.json(response);
+    if (req.body.stream) {
+      console.log('Simulating streaming...');
+      await simulateStream(aiResponse, res, {
+        chunkSize: parseInt(process.env.STREAM_CHUNK_SIZE) || 15,
+        delay: parseInt(process.env.STREAM_DELAY_MS) || 80,
+      });
+    } else {
+      const response = {
+        id: `chatcmpl-${Date.now()}`,
+        object: 'chat.completion',
+        created: Math.floor(Date.now() / 1000),
+        model: straicoResponse.data.model || model,
+        choices: straicoResponse.data.choices || [{
+          index: 0,
+          message: {
+            role: 'assistant',
+            content: aiResponse,
+          },
+          finish_reason: straicoResponse.data.choices[0]?.finish_reason || 'stop',
+        }],
+        usage: straicoResponse.data.usage || {
+          prompt_tokens: 0,
+          completion_tokens: 0,
+          total_tokens: 0,
+        },
+      };
+
+      console.log('Returning formatted response');
+      res.json(response);
+    }
 
   } catch (error) {
     console.error('Error processing request:', error.message);
