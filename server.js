@@ -2,7 +2,7 @@ import express from 'express';
 import dotenv from 'dotenv';
 import axios from 'axios';
 import { simulateStream } from './streaming.js';
-import { injectToolsIntoSystem } from './tools.js';
+import { injectToolsIntoSystem, parseToolCall, formatToolCallResponse } from './tools.js';
 
 dotenv.config();
 
@@ -75,6 +75,56 @@ app.post('/v1/chat/completions', async (req, res) => {
     console.log('Received Straico response');
 
     const aiResponse = straicoResponse.data.choices[0]?.message?.content || '';
+
+    if (req.body.tools) {
+      const toolCalls = parseToolCall(aiResponse);
+
+      if (toolCalls) {
+        console.log('Tool call detected:', toolCalls.map(t => t.function.name));
+
+        const toolResponse = formatToolCallResponse(toolCalls);
+
+        if (req.body.stream) {
+          const chunks = aiResponse.match(/.{1,15}/g) || [aiResponse];
+          for (const chunk of chunks) {
+            await new Promise(r => setTimeout(r, 80));
+            const sseData = {
+              id: toolResponse.id,
+              object: 'chat.completion.chunk',
+              created: toolResponse.created,
+              model: toolResponse.model,
+              choices: [{
+                index: 0,
+                delta: { content: chunk },
+                finish_reason: null,
+              }],
+            };
+            res.write(`data: ${JSON.stringify(sseData)}\n\n`);
+          }
+
+          const finalChunk = {
+            id: toolResponse.id,
+            object: 'chat.completion.chunk',
+            created: toolResponse.created,
+            model: toolResponse.model,
+            choices: [{
+              index: 0,
+              delta: { tool_calls: toolCalls, content: null },
+              finish_reason: 'tool_calls',
+            }],
+          };
+
+          res.write(`data: ${JSON.stringify(finalChunk)}\n\n`);
+          res.write('data: [DONE]\n\n');
+          res.end();
+
+          return;
+        } else {
+          res.json(toolResponse);
+          return;
+        }
+      }
+    }
 
     if (req.body.stream) {
       console.log('Simulating streaming...');
