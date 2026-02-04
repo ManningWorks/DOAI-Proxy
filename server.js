@@ -2,6 +2,7 @@ import express from 'express';
 import dotenv from 'dotenv';
 import axios from 'axios';
 import { simulateStream } from './streaming.js';
+import { injectToolsIntoSystem } from './tools.js';
 
 dotenv.config();
 
@@ -43,11 +44,13 @@ app.post('/v1/chat/completions', async (req, res) => {
       });
     }
 
-    console.log(`Request details: model=${model}, messages=${messages.length}`);
+    console.log(`Request details: model=${model}, messages=${messages.length}, hasTools=${!!req.body.tools}`);
+
+    const processedMessages = injectToolsIntoSystem(messages, req.body.tools);
 
     const straicoRequest = {
       model: model,
-      messages: messages,
+      messages: processedMessages,
       ...otherParams,
     };
 
