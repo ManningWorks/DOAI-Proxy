@@ -2,3 +2,22 @@ node_modules/
 .env
 *.log
 .DS_Store
+
+# btca local data
+.btca/
+
+# Additional security and local files
+.env.local
+.env.*.local
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Ralph
+.ralph-tui/
+tasks/
+
+# Opencode
+opencode.json
+project_docs/
+AGENTS.md

@@ -755,6 +755,58 @@ sudo systemctl start straico-proxy
 sudo systemctl status straico-proxy
 ```
 
+## Security
+
+This proxy is designed to be secure and suitable for public use. However, users should be aware of the following security considerations:
+
+### For Repository Users
+
+1. **Never commit `.env` to version control** - The `.gitignore` file excludes `.env` and logs
+2. **Use strong API keys** - Obtain your Straico API key from [straico.com](https://straico.com)
+3. **Keep API keys secret** - Never share or commit API keys
+4. **Use HTTPS in production** - Add a reverse proxy with SSL when exposing publicly
+5. **Add authentication** - Consider implementing API key authentication for the proxy itself if deploying to public servers
+6. **Monitor logs** - Regularly check for suspicious activity in `server.log` and `requests.log`
+
+### For Repository Maintainers
+
+1. **No secrets in code** - All secrets are loaded from environment variables only
+2. **No sensitive files tracked** - `.env`, `*.log`, and other sensitive files are in `.gitignore`
+3. **Regular dependency audits** - Run `npm audit fix` regularly
+4. **Keep dependencies updated** - Use `npm update` for security patches
+
+### Known Limitations
+
+- **Proxy does not execute tools** - Tool calls are formatted but not executed by the proxy
+- **No rate limiting** - Consider adding rate limiting for production deployments
+- **No authentication** - Any client can access the proxy (add middleware if needed)
+- **Logs stored locally** - Logs are written to disk and not encrypted
+
+### Recommended Security Enhancements
+
+For production deployments:
+
+```javascript
+// Add rate limiting (in server.js)
+import rateLimit from 'express-rate-limit';
+
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // 100 requests per window
+});
+
+app.use('/v1/', limiter);
+
+// Add authentication (in server.js)
+app.use('/v1/', (req, res, next) => {
+  const auth = req.headers.authorization;
+  if (!auth || auth !== `Bearer ${process.env.PROXY_API_KEY}`) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  next();
+});
+```
+
 ## License
 
 See LICENSE file for details.

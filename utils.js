@@ -1,5 +1,44 @@
+import fs from 'fs';
+
 export function delayMs(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+const LOG_LEVEL = process.env.LOG_LEVEL || 'info';
+
+const LOG_LEVELS = {
+  debug: 0,
+  info: 1,
+  warn: 2,
+  error: 3,
+};
+
+export function shouldLog(level) {
+  return LOG_LEVELS[level] >= LOG_LEVELS[LOG_LEVEL];
+}
+
+export function debug(...args) {
+  if (shouldLog('debug')) {
+    console.debug(`[DEBUG] ${new Date().toISOString()}`, ...args);
+  }
+}
+
+export function info(...args) {
+  if (shouldLog('info')) {
+    console.log(`[INFO] ${new Date().toISOString()}`, ...args);
+  }
+}
+
+export function warn(...args) {
+  if (shouldLog('warn')) {
+    console.warn(`[WARN] ${new Date().toISOString()}`, ...args);
+  }
+}
+
+export function error(...args) {
+  if (shouldLog('error')) {
+    console.error(`[ERROR] ${new Date().toISOString()}`, ...args);
+  }
 }
 
 export function formatError(error, context = {}) {
@@ -24,7 +63,7 @@ export function formatError(error, context = {}) {
   return errorData;
 }
 
-export function logRequest(req) {
+export function logRequest(req, responseTime = 0) {
   const logData = {
     timestamp: new Date().toISOString(),
     method: req.method,
@@ -35,15 +74,18 @@ export function logRequest(req) {
       'authorization': req.headers['authorization'] ? '[REDACTED]' : undefined,
     },
     body: req.body,
+    responseTime: responseTime,
   };
 
-  const logEntry = JSON.stringify(logData, null, 2);
-  console.log(logEntry);
+  info('Request', logData);
+
+  const logEntry = JSON.stringify(logData) + '\n';
+  fs.appendFileSync('requests.log', logEntry, 'utf8');
 
   return logData;
 }
 
-export function logResponse(res, statusCode, responseData) {
+export function logResponse(res, statusCode, responseData, responseTime = 0) {
   const logData = {
     timestamp: new Date().toISOString(),
     statusCode: statusCode,
@@ -51,10 +93,13 @@ export function logResponse(res, statusCode, responseData) {
       'content-type': res.get('content-type'),
     },
     body: responseData,
+    responseTime: responseTime,
   };
 
-  const logEntry = JSON.stringify(logData, null, 2);
-  console.log(logEntry);
+  info('Response', logData);
+
+  const logEntry = JSON.stringify(logData) + '\n';
+  fs.appendFileSync('requests.log', logEntry, 'utf8');
 
   return logData;
 }
@@ -93,16 +138,14 @@ export function logStraicoResponse(response) {
     },
   };
 
-  const logEntry = JSON.stringify(logData, null, 2);
-  console.log(logEntry);
+  info('Straico Response', logData);
 
   return logData;
 }
 
-export function logError(error, context = {}) {
-  const logData = formatError(error, context);
-  const logEntry = JSON.stringify(logData, null, 2);
-  console.error(logEntry);
+export function logError(errObject, context = {}) {
+  const logData = formatError(errObject, context);
+  error('Error', logData);
 
   return logData;
 }

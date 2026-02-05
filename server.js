@@ -27,22 +27,27 @@ app.use(express.json());
 app.use((req, res, next) => {
   const requestId = generateRequestId();
   res.setHeader('X-Request-ID', requestId);
-  logRequest(req);
+  res.locals.requestStartTime = Date.now();
+  logRequest(req, 0);
   next();
 });
 
 app.get('/health', (req, res) => {
+  const startTime = Date.now();
   const response = { status: 'ok', service: 'straico-proxy', timestamp: new Date().toISOString() };
-  logResponse(res, 200, response);
+  const responseTime = Date.now() - startTime;
+  logResponse(res, 200, response, responseTime);
   res.json(response);
 });
 
 app.post('/v1/chat/completions', async (req, res) => {
-  const requestId = req.headers['x-request-id'];
+  const requestId = req.headers['x-request-id'] || 'unknown';
   const startTime = Date.now();
 
   try {
     const { messages, model, ...otherParams } = req.body;
+
+    logRequest(req, 0);
 
     logRequestDetails(model, messages, !!req.body.tools);
 
@@ -53,7 +58,8 @@ app.post('/v1/chat/completions', async (req, res) => {
           type: 'invalid_request_error',
         },
       };
-      logResponse(res, 400, errorResponse);
+      const responseTime = Date.now() - startTime;
+      logResponse(res, 400, errorResponse, responseTime);
       return res.status(400).json(errorResponse);
     }
 
@@ -64,7 +70,8 @@ app.post('/v1/chat/completions', async (req, res) => {
           type: 'invalid_request_error',
         },
       };
-      logResponse(res, 400, errorResponse);
+      const responseTime = Date.now() - startTime;
+      logResponse(res, 400, errorResponse, responseTime);
       return res.status(400).json(errorResponse);
     }
 
@@ -87,6 +94,9 @@ app.post('/v1/chat/completions', async (req, res) => {
     };
 
     console.log(`[Straico Request] ${requestInfo.model} - ${requestInfo.messageCount} messages`);
+
+    const responseTime = Date.now() - startTime;
+    logRequest(req, responseTime);
 
     const straicoResponse = await axios.post(
       `${STRAICO_API_URL}/chat/completions`,
@@ -140,7 +150,8 @@ app.post('/v1/chat/completions', async (req, res) => {
 
           return;
         } else {
-          logResponse(res, 200, toolResponse);
+          const responseTime = Date.now() - startTime;
+          logResponse(res, 200, toolResponse, responseTime);
           res.json(toolResponse);
           return;
         }
@@ -161,26 +172,27 @@ app.post('/v1/chat/completions', async (req, res) => {
     } else {
       const response = formatChatCompletionResponse(straicoResponse.data, model);
 
-      logResponse(res, 200, response);
+      logResponse(res, 200, response, responseTime);
       res.json(response);
 
-      const responseTime = Date.now() - startTime;
       console.log(`[Request Complete] ${requestId} - ${responseTime}ms - Non-streaming response`);
     }
 
   } catch (error) {
+    const responseTime = Date.now() - startTime;
     console.error(`[Error Processing Request] ${requestId}`);
 
     const errorContext = {
       requestId,
       method: req.method,
       path: req.path,
+      responseTime,
     };
 
     logError(error, errorContext);
 
     if (error.response) {
-      logResponse(res, error.response.status, error.response.data);
+      logResponse(res, error.response.status, error.response.data, responseTime);
       res.status(error.response.status).json(error.response.data);
     } else {
       const errorResponse = {
@@ -189,7 +201,7 @@ app.post('/v1/chat/completions', async (req, res) => {
           type: 'internal_error',
         },
       };
-      logResponse(res, 500, errorResponse);
+      logResponse(res, 500, errorResponse, responseTime);
       res.status(500).json(errorResponse);
     }
   }
