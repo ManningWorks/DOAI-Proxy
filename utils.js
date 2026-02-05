@@ -1,4 +1,4 @@
-import fs from 'fs';
+import { appendFile } from 'fs/promises';
 
 export function delayMs(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -63,7 +63,7 @@ export function formatError(error, context = {}) {
   return errorData;
 }
 
-export function logRequest(req, responseTime = 0) {
+export async function logRequest(req, responseTime = 0) {
   const logData = {
     timestamp: new Date().toISOString(),
     method: req.method,
@@ -80,26 +80,26 @@ export function logRequest(req, responseTime = 0) {
   info('Request', logData);
 
   const logEntry = JSON.stringify(logData) + '\n';
-  fs.appendFileSync('requests.log', logEntry, 'utf8');
+  await appendFile('requests.log', logEntry, 'utf8');
 
   return logData;
 }
 
-export function logResponse(res, statusCode, responseData, responseTime = 0) {
+export async function logResponse(res, statusCode, responseData, responseTime = 0) {
   const logData = {
     timestamp: new Date().toISOString(),
     statusCode: statusCode,
     headers: {
       'content-type': res.get('content-type'),
     },
-    body: responseData,
+    body: sanitizeObject(responseData),
     responseTime: responseTime,
   };
 
   info('Response', logData);
 
   const logEntry = JSON.stringify(logData) + '\n';
-  fs.appendFileSync('requests.log', logEntry, 'utf8');
+  await appendFile('requests.log', logEntry, 'utf8');
 
   return logData;
 }
@@ -208,6 +208,8 @@ export function sanitizeObject(obj, keysToRedact = ['password', 'token', 'api_ke
   Object.keys(sanitized).forEach(key => {
     if (keysToRedact.some(redactKey => key.toLowerCase().includes(redactKey))) {
       sanitized[key] = '[REDACTED]';
+    } else if (key === 'content' && typeof sanitized[key] === 'string' && sanitized[key].length > 200) {
+      sanitized[key] = sanitized[key].substring(0, 200) + '...[TRUNCATED]';
     } else if (typeof sanitized[key] === 'object') {
       sanitized[key] = sanitizeObject(sanitized[key], keysToRedact);
     }

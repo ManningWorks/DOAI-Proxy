@@ -17,26 +17,33 @@ import {
 
 dotenv.config();
 
+const STRAICO_API_KEY = process.env.STRAICO_API_KEY;
+
+if (!STRAICO_API_KEY) {
+  console.error('FATAL: STRAICO_API_KEY is required but not set');
+  process.exit(1);
+}
+
 const app = express();
 const PORT = process.env.PROXY_PORT || 8000;
-const STRAICO_API_KEY = process.env.STRAICO_API_KEY;
 const STRAICO_API_URL = process.env.STRAICO_API_URL || 'https://api.straico.com/v1';
+const STRAICO_API_TIMEOUT = parseInt(process.env.STRAICO_API_TIMEOUT) || 60000;
 
 app.use(express.json());
 
-app.use((req, res, next) => {
+app.use(async (req, res, next) => {
   const requestId = generateRequestId();
   res.setHeader('X-Request-ID', requestId);
   res.locals.requestStartTime = Date.now();
-  logRequest(req, 0);
+  await logRequest(req, 0);
   next();
 });
 
-app.get('/health', (req, res) => {
+app.get('/health', async (req, res) => {
   const startTime = Date.now();
   const response = { status: 'ok', service: 'straico-proxy', timestamp: new Date().toISOString() };
   const responseTime = Date.now() - startTime;
-  logResponse(res, 200, response, responseTime);
+  await logResponse(res, 200, response, responseTime);
   res.json(response);
 });
 
@@ -47,7 +54,7 @@ app.post('/v1/chat/completions', async (req, res) => {
   try {
     const { messages, model, ...otherParams } = req.body;
 
-    logRequest(req, 0);
+    await logRequest(req, 0);
 
     logRequestDetails(model, messages, !!req.body.tools);
 
@@ -59,7 +66,7 @@ app.post('/v1/chat/completions', async (req, res) => {
         },
       };
       const responseTime = Date.now() - startTime;
-      logResponse(res, 400, errorResponse, responseTime);
+      await logResponse(res, 400, errorResponse, responseTime);
       return res.status(400).json(errorResponse);
     }
 
@@ -71,7 +78,7 @@ app.post('/v1/chat/completions', async (req, res) => {
         },
       };
       const responseTime = Date.now() - startTime;
-      logResponse(res, 400, errorResponse, responseTime);
+      await logResponse(res, 400, errorResponse, responseTime);
       return res.status(400).json(errorResponse);
     }
 
@@ -95,8 +102,7 @@ app.post('/v1/chat/completions', async (req, res) => {
 
     console.log(`[Straico Request] ${requestInfo.model} - ${requestInfo.messageCount} messages`);
 
-    const responseTime = Date.now() - startTime;
-    logRequest(req, responseTime);
+    await logRequest(req, 0);
 
     const straicoResponse = await axios.post(
       `${STRAICO_API_URL}/chat/completions`,
@@ -106,7 +112,7 @@ app.post('/v1/chat/completions', async (req, res) => {
           'Authorization': `Bearer ${STRAICO_API_KEY}`,
           'Content-Type': 'application/json',
         },
-        timeout: 60000,
+        timeout: STRAICO_API_TIMEOUT,
       }
     );
 
@@ -123,35 +129,49 @@ app.post('/v1/chat/completions', async (req, res) => {
         const toolResponse = formatToolCallResponse(toolCalls);
 
         if (req.body.stream) {
-          const chunks = aiResponse.match(/.{1,15}/g) || [aiResponse];
-          for (const chunk of chunks) {
-            await delayMs(80);
-            const sseChunk = formatSSEChunk(
-              { content: chunk },
+          res.setHeader('Content-Type', 'text/event-stream');
+          res.setHeader('Cache-Control', 'no-cache');
+          res.setHeader('Connection', 'keep-alive');
+
+          try {
+            const chunks = aiResponse.match(/.{1,15}/g) || [aiResponse];
+            for (const chunk of chunks) {
+              await delayMs(80);
+              const sseChunk = formatSSEChunk(
+                { content: chunk },
+                toolResponse.id,
+                straicoResponse.data.model,
+                null
+              );
+              res.write(sseChunk);
+            }
+
+            const finalChunk = formatSSEChunk(
+              { tool_calls: toolCalls, content: null },
               toolResponse.id,
               straicoResponse.data.model,
-              null
+              'tool_calls'
             );
-            res.write(sseChunk);
+            res.write(finalChunk);
+            res.write('data: [DONE]\n\n');
+            res.end();
+
+            const responseTime = Date.now() - startTime;
+            console.log(`[Request Complete] ${requestId} - ${responseTime}ms - Tool call response`);
+
+            return;
+          } catch (streamError) {
+            console.error('Failed to stream AI response:', streamError);
+            return res.status(500).json({
+              error: {
+                message: 'Internal server error during streaming',
+                type: 'internal_error',
+              },
+            });
           }
-
-          const finalChunk = formatSSEChunk(
-            { tool_calls: toolCalls, content: null },
-            toolResponse.id,
-            straicoResponse.data.model,
-            'tool_calls'
-          );
-          res.write(finalChunk);
-          res.write('data: [DONE]\n\n');
-          res.end();
-
-          const responseTime = Date.now() - startTime;
-          console.log(`[Request Complete] ${requestId} - ${responseTime}ms - Tool call response`);
-
-          return;
         } else {
           const responseTime = Date.now() - startTime;
-          logResponse(res, 200, toolResponse, responseTime);
+          await logResponse(res, 200, toolResponse, responseTime);
           res.json(toolResponse);
           return;
         }
@@ -159,6 +179,10 @@ app.post('/v1/chat/completions', async (req, res) => {
     }
 
     if (req.body.stream) {
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+
       console.log('Simulating streaming...');
       await simulateStream(aiResponse, res, {
         chunkSize: parseInt(process.env.STREAM_CHUNK_SIZE) || 15,
@@ -171,8 +195,9 @@ app.post('/v1/chat/completions', async (req, res) => {
       return;
     } else {
       const response = formatChatCompletionResponse(straicoResponse.data, model);
+      const responseTime = Date.now() - startTime;
 
-      logResponse(res, 200, response, responseTime);
+      await logResponse(res, 200, response, responseTime);
       res.json(response);
 
       console.log(`[Request Complete] ${requestId} - ${responseTime}ms - Non-streaming response`);
@@ -192,7 +217,7 @@ app.post('/v1/chat/completions', async (req, res) => {
     logError(error, errorContext);
 
     if (error.response) {
-      logResponse(res, error.response.status, error.response.data, responseTime);
+      await logResponse(res, error.response.status, error.response.data, responseTime);
       res.status(error.response.status).json(error.response.data);
     } else {
       const errorResponse = {
@@ -201,7 +226,7 @@ app.post('/v1/chat/completions', async (req, res) => {
           type: 'internal_error',
         },
       };
-      logResponse(res, 500, errorResponse, responseTime);
+      await logResponse(res, 500, errorResponse, responseTime);
       res.status(500).json(errorResponse);
     }
   }

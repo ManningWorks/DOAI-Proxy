@@ -1,5 +1,11 @@
+import { delayMs } from './utils.js';
+
 export async function simulateStream(responseText, res, config = {}) {
   const { chunkSize = 15, delay = 80 } = config;
+
+  if (typeof responseText !== 'string') {
+    throw new Error('responseText must be a string');
+  }
 
   const chunks = responseText.match(new RegExp(`.{1,${chunkSize}}`, 'g')) || [responseText];
 
@@ -36,8 +42,4 @@ export async function simulateStream(responseText, res, config = {}) {
   res.write(`data: ${JSON.stringify(finalChunk)}\n\n`);
   res.write('data: [DONE]\n\n');
   res.end();
-}
-
-function delayMs(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
 }
