@@ -1,4 +1,15 @@
-import { appendFile } from 'fs/promises';
+import { appendFile, stat, unlink, rename } from 'fs/promises';
+import { glob } from 'glob';
+
+// Log file paths (organized in dedicated logs/ directory)
+const LOG_FILE_PATHS = {
+  requests: 'logs/requests.log',
+  server: 'logs/server.log',
+};
+
+// Log rotation configuration
+const MAX_LOG_SIZE = 50 * 1024 * 1024; // 50 MB per log file
+const MAX_LOG_FILES = 5; // Keep 5 backup files
 
 export function delayMs(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -12,6 +23,49 @@ const LOG_LEVELS = {
   warn: 2,
   error: 3,
 };
+  try {
+    const stats = await stat(logFile);
+    const fileSize = stats.size;
+    
+    if (fileSize > MAX_LOG_SIZE) {
+      // Rotate: move to archive with timestamp
+      const timestamp = new Date().toISOString().split('T')[0];
+      await rename(logFile, `${logFile}.${timestamp}`);
+      
+      // Create new empty log file
+      await appendFile(logFile, '', 'utf8');
+      
+      // Clean old archives (keep only MAX_LOG_FILES most recent)
+      await cleanupOldArchives(logFile, MAX_LOG_FILES);
+      
+      warn('Log rotation', `Rotated ${logFile} (${(fileSize / 1024 / 1024).toFixed(2)} MB)`);
+      return true; // Rotated
+    }
+    return false; // No rotation needed
+  } catch (error) {
+    // If log file doesn't exist, just continue
+    if (error.code !== 'ENOENT') {
+      error('Log rotation error', error.message);
+    }
+    return false;
+  }
+}
+
+async function cleanupOldArchives(logFile, maxFiles) {
+  try {
+    const files = await glob(`${logFile}.*`);
+    const sortedFiles = files
+      .sort((a, b) => b.mtime - a.mtime)
+      .reverse();
+    
+    // Keep only most recent maxFiles, remove rest
+    for (const file of sortedFiles.slice(maxFiles)) {
+      await unlink(file);
+    }
+  } catch (error) {
+    error('Log cleanup error', error.message);
+  }
+}
 
 export function shouldLog(level) {
   return LOG_LEVELS[level] >= LOG_LEVELS[LOG_LEVEL];
@@ -64,6 +118,9 @@ export function formatError(error, context = {}) {
 }
 
 export async function logRequest(req, responseTime = 0) {
+  // Rotate log if needed (only checks size if file is already large)
+  await rotateLogIfNeeded('requests.log');
+  
   const logData = {
     timestamp: new Date().toISOString(),
     method: req.method,
@@ -80,12 +137,15 @@ export async function logRequest(req, responseTime = 0) {
   info('Request', logData);
 
   const logEntry = JSON.stringify(logData) + '\n';
-  await appendFile('requests.log', logEntry, 'utf8');
+  await appendFile(LOG_FILE_PATHS.requests, logEntry, 'utf8');
 
   return logData;
 }
 
 export async function logResponse(res, statusCode, responseData, responseTime = 0) {
+  // Rotate log if needed (only checks size if file is already large)
+  await rotateLogIfNeeded('requests.log');
+  
   const logData = {
     timestamp: new Date().toISOString(),
     statusCode: statusCode,
@@ -99,7 +159,7 @@ export async function logResponse(res, statusCode, responseData, responseTime = 
   info('Response', logData);
 
   const logEntry = JSON.stringify(logData) + '\n';
-  await appendFile('requests.log', logEntry, 'utf8');
+  await appendFile(LOG_FILE_PATHS.requests, logEntry, 'utf8');
 
   return logData;
 }

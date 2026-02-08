@@ -491,8 +491,10 @@ services:
     env_file:
       - .env.straico
     restart: unless-stopped
-    volumes:
-      - ./.env.straico:/app/.env:ro
+     volumes:
+       - ./.env.straico:/app/.env:ro
+       - ./logs:/app/logs:ro
+       # Logs directory for organized log files
 
   # OpenAI Instance (when available)
   openai-proxy:

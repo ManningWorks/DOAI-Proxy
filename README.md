@@ -708,10 +708,11 @@ curl -X POST http://localhost:8000/v2/chat/completions \
 
 ### Other Limitations
 
-- **No caching**: Each request is processed independently
+ - **No caching**: Each request is processed independently
 - **No rate limiting**: No built-in rate limiting
 - **No authentication**: Any client can call the proxy (unless you add your own middleware)
 - **Memory usage**: Responses are stored in memory until sent (not streamed from provider)
+- **Log rotation**: Automatic log file rotation when files exceed 50MB. Keeps 5 backup files. Configurable via `MAX_LOG_SIZE` and `MAX_LOG_FILES` environment variables.
 
 ### Known Issues
 
@@ -755,15 +756,17 @@ straico-proxy/
 │   ├── base-provider.js        # Abstract base class
 │   ├── provider-factory.js     # Provider factory
 │   ├── straico-provider.js     # Straico implementation
-│   └── index.js                # Provider exports
+│   └── index.js                 # Provider exports
 ├── package.json              # Dependencies and scripts
 ├── .env.example              # Environment variables template
-├── .env                      # Your actual configuration (gitignored)
 ├── Dockerfile                # Docker image definition
 ├── docker-compose.yml        # Docker orchestration
 ├── .eslintrc.json            # ESLint configuration
 ├── docs/                    # Documentation
 │   └── ADDING_PROVIDERS.md  # Provider implementation guide
+├── logs/                     # Log files directory
+│   ├── requests.log             # Request/response logs
+│   └── server.log              # Server error logs
 └── README.md                 # This file
 ```
 

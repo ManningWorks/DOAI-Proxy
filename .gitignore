@@ -1,9 +1,8 @@
 node_modules/
 .env
 *.log
+logs/
 .DS_Store
-
-# btca local data
 .btca/
 
 # Additional security and local files
@@ -21,3 +20,6 @@ tasks/
 opencode.json
 project_docs/
 AGENTS.md
+
+# Logging 
+logs/
