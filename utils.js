@@ -1,5 +1,9 @@
-import { appendFile, stat, unlink, rename } from 'fs/promises';
-import { glob } from 'glob';
+import { appendFile, stat, unlink, rename, readdir } from 'fs/promises';
+import { extname, join, dirname } from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 // Log file paths (organized in dedicated logs/ directory)
 const LOG_FILE_PATHS = {
@@ -23,27 +27,25 @@ const LOG_LEVELS = {
   warn: 2,
   error: 3,
 };
+
+export async function rotateLogIfNeeded(logFile) {
   try {
     const stats = await stat(logFile);
     const fileSize = stats.size;
-    
+
     if (fileSize > MAX_LOG_SIZE) {
-      // Rotate: move to archive with timestamp
       const timestamp = new Date().toISOString().split('T')[0];
       await rename(logFile, `${logFile}.${timestamp}`);
-      
-      // Create new empty log file
+
       await appendFile(logFile, '', 'utf8');
-      
-      // Clean old archives (keep only MAX_LOG_FILES most recent)
+
       await cleanupOldArchives(logFile, MAX_LOG_FILES);
-      
+
       warn('Log rotation', `Rotated ${logFile} (${(fileSize / 1024 / 1024).toFixed(2)} MB)`);
-      return true; // Rotated
+      return true;
     }
-    return false; // No rotation needed
+    return false;
   } catch (error) {
-    // If log file doesn't exist, just continue
     if (error.code !== 'ENOENT') {
       error('Log rotation error', error.message);
     }
@@ -53,13 +55,31 @@ const LOG_LEVELS = {
 
 async function cleanupOldArchives(logFile, maxFiles) {
   try {
-    const files = await glob(`${logFile}.*`);
-    const sortedFiles = files
+    const logDir = dirname(logFile);
+    const logBase = logFile.split('/').pop();
+    const allFiles = await readdir(logDir);
+
+    const logFiles = allFiles.filter(file =>
+      file.startsWith(logBase + '.') &&
+      file !== logBase
+    ).map(file => join(logDir, file));
+
+    if (logFiles.length <= maxFiles) {
+      return;
+    }
+
+    const fileStats = await Promise.all(
+      logFiles.map(async file => {
+        const stats = await stat(file);
+        return { file, mtime: stats.mtime };
+      })
+    );
+
+    const sortedFiles = fileStats
       .sort((a, b) => b.mtime - a.mtime)
-      .reverse();
-    
-    // Keep only most recent maxFiles, remove rest
-    for (const file of sortedFiles.slice(maxFiles)) {
+      .slice(maxFiles);
+
+    for (const { file } of sortedFiles) {
       await unlink(file);
     }
   } catch (error) {
