@@ -36,7 +36,7 @@ Only make one tool call at a time. Wait for the result before making another too
 }
 
 export function parseToolCall(responseText) {
-  const toolCallPattern = /TOOL_CALL:\s*(\w+)\s*\nARGUMENTS:\s*({.*})/s;
+  const toolCallPattern = /TOOL_CALL:\s*(\w+)\s*\n?\s*ARGUMENTS:\s*(\{[\s\S]*?\})(?:\n|$)/;
 
   const match = responseText.match(toolCallPattern);
   if (!match) return null;
