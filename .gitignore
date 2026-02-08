@@ -23,3 +23,7 @@ AGENTS.md
 
 # Logging 
 logs/
+
+# API Documentation (auto-generated)
+docs/straico-api/
+scripts/

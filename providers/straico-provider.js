@@ -58,17 +58,32 @@ export class StraicoProvider {
   transformRequest(openAIRequest) {
     const { messages, model, tools, ...otherParams } = openAIRequest;
 
-    // Inject tools into system message via prompt injection
+    const useSmartSelector = !model || model === 'auto';
+
+    if (useSmartSelector) {
+      const processedMessages = injectToolsIntoSystem(messages, tools);
+
+      console.log('[StraicoProvider] Using smart_llm_selector with pricing_method: balance');
+      return {
+        smart_llm_selector: {
+          quantity: 1,
+          pricing_method: 'balance'
+        },
+        messages: processedMessages,
+        ...otherParams
+      };
+    }
+
     const processedMessages = injectToolsIntoSystem(messages, tools);
 
-    // Build Straico request
     const straicoRequest = {
       model: model,
       messages: processedMessages,
       ...otherParams,
     };
 
-    // Set default temperature if not provided
+    console.log('[StraicoProvider] Final request:', JSON.stringify(straicoRequest, null, 2));
+
     if (!straicoRequest.temperature) {
       straicoRequest.temperature = 0.7;
     }
@@ -83,8 +98,10 @@ export class StraicoProvider {
    * @throws {Error} If API call fails
    */
   async makeRequest(request) {
+    const url = `${this.config.apiUrl}/chat/completions`;
+    console.log(`[StraicoProvider] Calling API: ${url} with model: ${request.model}`);
     const response = await axios.post(
-      `${this.config.apiUrl}/chat/completions`,
+      url,
       request,
       {
         headers: {
