@@ -1,9 +1,5 @@
 import { appendFile, stat, unlink, rename, readdir } from 'fs/promises';
-import { extname, join, dirname } from 'path';
-import { fileURLToPath } from 'url';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+import { join, dirname } from 'path';
 
 // Log file paths (organized in dedicated logs/ directory)
 const LOG_FILE_PATHS = {
@@ -256,6 +252,15 @@ export function formatChatCompletionResponse(data, model) {
 }
 
 export function formatSSEChunk(chunk, id, model, finishReason = null) {
+  const delta = { ...chunk };
+
+  if (delta.tool_calls && Array.isArray(delta.tool_calls)) {
+    delta.tool_calls = delta.tool_calls.map((toolCall, index) => ({
+      ...toolCall,
+      index,
+    }));
+  }
+
   const sseData = {
     id: id,
     object: 'chat.completion.chunk',
@@ -263,7 +268,7 @@ export function formatSSEChunk(chunk, id, model, finishReason = null) {
     model: model,
     choices: [{
       index: 0,
-      delta: chunk,
+      delta: delta,
       finish_reason: finishReason,
     }],
   };
