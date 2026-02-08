@@ -1,27 +1,29 @@
-# Straico Proxy
+# AI Provider Proxy
 
-Local proxy for Straico's API that adds streaming and function calling support, making it compatible with tools like OpenCode that require these features.
+OpenAI-compatible proxy that adds streaming and function calling support to AI provider APIs that lack these features, making them compatible with tools like OpenCode.
+
+**Currently supports Straico with extensible architecture for future providers.**
 
 ## What This Project Does
 
-Straico's API is OpenAI-compatible but lacks two critical features:
+Many AI provider APIs are OpenAI-compatible but lack two critical features:
 - **Streaming responses** - Real-time text generation
 - **Function calling / tool use** - Ability to call external functions
 
-This proxy sits between OpenCode/your app and Straico, simulating these missing features by:
+This proxy sits between your OpenAI-compatible client (OpenCode, etc.) and the provider API, simulating these missing features by:
 
-1. **Streaming Simulation**: Converts non-streaming Straico responses into Server-Sent Events (SSE) with simulated chunking and delays
-2. **Function Calling**: Converts tool definitions into system prompts and parses AI responses to detect and format tool calls
-3. **OpenAI Compatibility**: Presents an OpenAI-compatible API interface (`/v1/chat/completions`)
+1. **Streaming Simulation**: Converts non-streaming provider responses into Server-Sent Events (SSE) with simulated chunking and delays
+2. **Function Calling**: Converts tool definitions into system prompts and parses AI responses to detect and format tool calls (for providers without native support)
+3. **OpenAI Compatibility**: Presents an OpenAI-compatible API interface (`/v2/chat/completions`)
 
 ## Architecture
 
 ```
-OpenCode Client / Application
+OpenAI-Compatible Client (OpenCode, etc.)
     ↓ (expects streaming + function calls)
-Proxy Server (localhost:8000)
-    ↓ (transforms requests to Straico format)
-Straico API (no streaming, no function calls)
+AI Provider Proxy (localhost:8000)
+    ↓ (transforms to provider format)
+Provider API (Straico, OpenAI, Anthropic, etc.)
 ```
 
 ### Key Components
@@ -30,13 +32,43 @@ Straico API (no streaming, no function calls)
 - **streaming.js** - Module that converts non-streaming responses into SSE format with delays
 - **tools.js** - Module that handles function calling by injecting tools into prompts and parsing responses
 - **utils.js** - Helper functions for logging, delays, and response formatting
+- **providers/** - Provider abstraction layer supporting multiple AI providers
+  - **base-provider.js** - Abstract base class defining provider interface
+  - **provider-factory.js** - Factory for creating provider instances
+  - **straico-provider.js** - Straico API implementation
+  - More providers can be added in future
+
+### Provider System
+
+This proxy uses a provider-based architecture to support multiple AI providers. Currently, Straico is the only supported provider, but the system is designed to be easily extended.
+
+**Supported Providers:**
+- **Straico**: API aggregator with streaming simulation and function calling
+- **OpenAI**: Coming soon (will support native streaming and function calling)
+- **Anthropic**: Coming soon (will support native streaming and function calling)
+
+**Provider Configuration:**
+Set the provider type using the `PROVIDER_TYPE` environment variable:
+
+```bash
+PROVIDER_TYPE=straico  # Currently only option
+```
+
+**Adding New Providers:**
+The provider system is designed to be extensible. To add support for a new provider:
+1. Create a new provider class in `providers/` directory
+2. Implement the `BaseProvider` interface
+3. Add the provider to `ProviderFactory`
+4. Add environment variables for the provider's credentials
+
+See [docs/ADDING_PROVIDERS.md](docs/ADDING_PROVIDERS.md) for detailed instructions.
 
 ## Installation
 
 ### Prerequisites
 
 - Node.js 18 or higher
-- Straico API key (obtain from [straico.com](https://straico.com))
+- API key for your chosen provider (Straico, OpenAI, etc.)
 
 ### Setup Steps
 
@@ -55,11 +87,17 @@ Straico API (no streaming, no function calls)
    ```bash
    cp .env.example .env
    ```
-   
-   Edit `.env` and add your Straico API key:
+
+   Edit `.env` and add your provider's API key:
+
+   **For Straico:**
    ```bash
+   PROVIDER_TYPE=straico
    STRAICO_API_KEY=your_actual_api_key_here
    ```
+
+   **For other providers (when available):**
+   See provider-specific configuration examples in the Configuration section below.
 
 4. **Run the proxy**:
    ```bash
@@ -75,7 +113,7 @@ Straico API (no streaming, no function calls)
    ```bash
    curl http://localhost:8000/health
    ```
-   
+
    Expected output:
    ```json
    {"status":"ok","service":"straico-proxy","timestamp":"2026-02-04T23:30:00.000Z"}
@@ -89,21 +127,40 @@ Environment variables are defined in `.env`:
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `STRAICO_API_KEY` | Your Straico API key | - (required) |
+| `STRAICO_API_KEY` | Your Straico API key (if PROVIDER_TYPE=straico) | - (required) |
+| `OPENAI_API_KEY` | Your OpenAI API key (if PROVIDER_TYPE=openai) | - (required when using OpenAI) |
 
 ### Optional
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `STRAICO_API_URL` | Straico API base URL | `https://api.straico.com/v1` |
+| `PROVIDER_TYPE` | Provider type to use | `straico` |
+| `STRAICO_API_URL` | Straico API base URL | `https://api.straico.com/v2` |
+| `STRAICO_API_TIMEOUT` | Straico API timeout (ms) | `60000` |
 | `PROXY_PORT` | Proxy server port | `8000` |
 | `STREAM_CHUNK_SIZE` | Characters per SSE chunk | `15` |
 | `STREAM_DELAY_MS` | Delay between chunks (ms) | `80` |
-| `LOG_LEVEL` | Logging verbosity | `info` |
+| `LOG_LEVEL` | Logging verbosity (debug, info, warn, error) | `info` |
+
+### Provider-Specific Configuration
+
+#### Straico (Current Default)
+```bash
+PROVIDER_TYPE=straico
+STRAICO_API_KEY=your_key
+STRAICO_API_URL=https://api.straico.com/v2
+```
+
+#### OpenAI (Coming Soon)
+```bash
+PROVIDER_TYPE=openai
+OPENAI_API_KEY=your_key
+OPENAI_API_URL=https://api.openai.com/v1
+```
 
 ### Tuning Streaming
 
-Adjust these values to control how the streaming feels:
+Adjust these values to control how streaming feels:
 
 - **Larger chunks** (e.g., `STREAM_CHUNK_SIZE=25`, `STREAM_DELAY_MS=40`) → Smoother, faster
 - **Smaller chunks** (e.g., `STREAM_CHUNK_SIZE=8`, `STREAM_DELAY_MS=100`) → More realistic, slower
@@ -113,7 +170,7 @@ Adjust these values to control how the streaming feels:
 ### Streaming Simulation
 
 1. Proxy accepts requests with `stream: true`
-2. Makes non-streaming call to Straico API
+2. Makes non-streaming call to provider API
 3. Waits for full response
 4. Splits response into chunks (default 15 characters each)
 5. Adds delay between chunks (default 80ms)
@@ -127,6 +184,9 @@ Adjust these values to control how the streaming feels:
 
 ### Function Calling
 
+Function calling support varies by provider:
+
+**For providers without native function calling (e.g., Straico):**
 1. **Request Processing**: Proxy detects if request includes `tools` parameter
 2. **Tool Injection**: Converts tool definitions into system prompt instructions
 3. **Prompt Formatting**: Tells AI to use format: `TOOL_CALL: name\nARGUMENTS: {json}`
@@ -135,7 +195,7 @@ Adjust these values to control how the streaming feels:
 6. **Response Formatting**: Returns tool call object with `finish_reason: 'tool_calls'`
 7. **Multi-turn Support**: Client can execute tool and send result back as `role: 'tool'` message
 
-**Example Tool Format**:
+**Example Tool Format:**
 ```javascript
 {
   "tools": [
@@ -157,14 +217,14 @@ Adjust these values to control how the streaming feels:
 }
 ```
 
-**AI Response Format**:
+**AI Response Format:**
 ```
 I can help you check the weather. Let me get that information for you.
 TOOL_CALL: get_weather
 ARGUMENTS: {"location": "Tokyo"}
 ```
 
-**Tool Call Object Returned**:
+**Tool Call Object Returned:**
 ```javascript
 {
   "id": "call_1234567890",
@@ -178,11 +238,11 @@ ARGUMENTS: {"location": "Tokyo"}
 
 ## API Endpoints
 
-### POST /v1/chat/completions
+### POST /v2/chat/completions
 
 Main chat endpoint that supports both streaming and function calling.
 
-**Request Format**:
+**Request Format:**
 ```json
 {
   "model": "gpt-3.5-turbo",
@@ -209,7 +269,7 @@ Main chat endpoint that supports both streaming and function calling.
 }
 ```
 
-**Response Format (Non-Streaming)**:
+**Response Format (Non-Streaming):**
 ```json
 {
   "id": "chatcmpl-12345",
@@ -234,7 +294,7 @@ Main chat endpoint that supports both streaming and function calling.
 }
 ```
 
-**Response Format (Streaming)**:
+**Response Format (Streaming):**
 Server-Sent Events (SSE) format:
 ```
 data: {"id":"chatcmpl-12345","object":"chat.completion.chunk","created":1234567890,"model":"gpt-3.5-turbo","choices":[{"index":0,"delta":{"content":"Hello"},"finish_reason":null}]}
@@ -246,7 +306,7 @@ data: {"id":"chatcmpl-12345","object":"chat.completion.chunk","created":12345678
 data: [DONE]
 ```
 
-**Response Format (Function Call)**:
+**Response Format (Function Call):**
 ```json
 {
   "id": "chatcmpl-12345",
@@ -285,12 +345,12 @@ data: [DONE]
 
 Health check endpoint.
 
-**Request**:
+**Request:**
 ```bash
 curl http://localhost:8000/health
 ```
 
-**Response**:
+**Response:**
 ```json
 {
   "status": "ok",
@@ -299,16 +359,18 @@ curl http://localhost:8000/health
 }
 ```
 
-### GET /v1/models
+**Note:** The `service` field reflects the provider type (e.g., `straico-proxy`, `openai-proxy`).
 
-List available models (currently not implemented, returns empty array).
+### GET /v2/models
+
+List available models (currently not implemented for all providers, returns empty array).
 
 ## Usage Examples
 
 ### Basic Chat (Non-Streaming)
 
 ```bash
-curl -X POST http://localhost:8000/v1/chat/completions \
+curl -X POST http://localhost:8000/v2/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
     "model": "gpt-3.5-turbo",
@@ -320,7 +382,7 @@ curl -X POST http://localhost:8000/v1/chat/completions \
 ### Streaming Response
 
 ```bash
-curl -X POST http://localhost:8000/v1/chat/completions \
+curl -X POST http://localhost:8000/v2/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
     "model": "gpt-3.5-turbo",
@@ -332,7 +394,7 @@ curl -X POST http://localhost:8000/v1/chat/completions \
 ### Function Calling
 
 ```bash
-curl -X POST http://localhost:8000/v1/chat/completions \
+curl -X POST http://localhost:8000/v2/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
     "model": "gpt-3.5-turbo",
@@ -364,7 +426,7 @@ curl -X POST http://localhost:8000/v1/chat/completions \
 ```javascript
 import fetch from 'node-fetch';
 
-const response = await fetch('http://localhost:8000/v1/chat/completions', {
+const response = await fetch('http://localhost:8000/v2/chat/completions', {
   method: 'POST',
   headers: {
     'Content-Type': 'application/json',
@@ -407,10 +469,10 @@ while (true) {
 1. **Configure environment**:
    ```bash
    cp .env.example .env
-   # Edit .env with your Straico API key
+   # Edit .env with your provider's API key
    ```
 
-2. **Start the container**:
+2. **Start container**:
    ```bash
    docker-compose up -d
    ```
@@ -421,7 +483,7 @@ while (true) {
    docker logs straico-proxy
    ```
 
-4. **Stop the container**:
+4. **Stop container**:
    ```bash
    docker-compose down
    ```
@@ -480,37 +542,41 @@ services:
 
 **Symptom**: `{"error":{"message":"Invalid API key","type":"invalid_request_error"}}`
 
-**Cause**: Invalid or missing Straico API key
+**Cause**: Invalid or missing provider API key
 
 **Solutions**:
 1. Verify `.env` file exists and contains your API key:
    ```bash
-   cat .env | grep STRAICO_API_KEY
+   cat .env | grep API_KEY
    ```
-2. Test the API key directly with Straico:
+2. Check which provider you're using:
    ```bash
-   curl https://api.straico.com/v1/models \
+   cat .env | grep PROVIDER_TYPE
+   ```
+3. Test your API key directly with the provider (e.g., Straico):
+   ```bash
+   curl https://api.straico.com/v2/models \
      -H "Authorization: Bearer YOUR_API_KEY"
    ```
-3. Ensure you copied `.env.example` to `.env` and filled it in
+4. Ensure you copied `.env.example` to `.env` and filled it in
 
 ### Timeout Waiting for Response
 
 **Symptom**: `Error: timeout of 60000ms exceeded`
 
 **Causes**:
-- Straico API is slow
+- Provider API is slow
 - Network issues
 - Timeout too short
 
 **Solutions**:
-1. Increase timeout in `server.js`:
-   ```javascript
-   timeout: 120000,  // 2 minutes
-   ```
-2. Check Straico status:
+1. Increase timeout in `.env`:
    ```bash
-   curl https://api.straico.com/v1/health
+   STRAICO_API_TIMEOUT=120000  # 2 minutes
+   ```
+2. Check provider status:
+   ```bash
+   curl https://api.straico.com/v2/health
    ```
 3. Check your network connection
 
@@ -535,7 +601,7 @@ services:
    const toolInstruction = `You must use tools by responding in this exact format:
    TOOL_CALL: <tool_name>
    ARGUMENTS: <json_arguments>
-   
+
    DO NOT include any other text before or after the format.`;
    ```
 
@@ -544,7 +610,7 @@ services:
 **Symptom**: Streaming text is too choppy or too slow
 
 **Causes**:
-- Chunk size or delay not optimized for use case
+- Chunk size or delay not optimized for your use case
 
 **Solutions**:
 1. Adjust in `.env`:
@@ -564,7 +630,7 @@ services:
 **Symptom**: Server returns 500 error with stack trace
 
 **Causes**:
-- Straico API error
+- Provider API error
 - Server-side bug
 
 **Solutions**:
@@ -572,12 +638,12 @@ services:
    ```bash
    LOG_LEVEL=debug npm start
    ```
-2. Check Straico API is accessible:
+2. Check provider API is accessible:
    ```bash
-   curl https://api.straico.com/v1/models \
+   curl https://api.straico.com/v2/models \
      -H "Authorization: Bearer YOUR_KEY"
    ```
-3. Report the error with full logs
+3. Report error with full logs
 
 ## Testing
 
@@ -608,7 +674,7 @@ curl http://localhost:8000/health
 ### Test Basic Request
 
 ```bash
-curl -X POST http://localhost:8000/v1/chat/completions \
+curl -X POST http://localhost:8000/v2/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
     "model": "gpt-3.5-turbo",
@@ -627,31 +693,30 @@ curl -X POST http://localhost:8000/v1/chat/completions \
 
 ### Function Calling Limitations
 
-- **Format dependency**: AI must follow exact format for tool calls to be detected
+- **Format dependency**: AI must follow exact format for tool calls to be detected (for providers without native support)
 - **Single tool call**: Only one tool call per response is supported
 - **No tool execution**: Proxy doesn't execute tools, just formats tool call objects
 - **Requires AI compliance**: If AI doesn't follow format, tool calls won't be detected
-- **Tool output size**: Limited by Straico's response size
+- **Tool output size**: Limited by provider's response size
 
 ### API Compatibility Limitations
 
-- **No actual streaming**: Straico doesn't support streaming, so proxy simulates it
-- **No actual function calling**: Straico doesn't support function calling, so proxy injects prompts and parses responses
-- **Model list**: `/v1/models` endpoint returns empty (not implemented)
+- **No actual streaming**: Providers without native streaming (like Straico) have streaming simulated by the proxy
+- **No actual function calling**: Providers without native function calling (like Straico) use prompt injection
+- **Model list**: `/v2/models` endpoint returns empty (not implemented)
+- **Provider-specific limitations**: Each provider has its own API limitations (rate limits, context window, etc.)
 
 ### Other Limitations
 
 - **No caching**: Each request is processed independently
 - **No rate limiting**: No built-in rate limiting
 - **No authentication**: Any client can call the proxy (unless you add your own middleware)
-- **Memory usage**: Responses are stored in memory until sent (not streamed from Straico)
+- **Memory usage**: Responses are stored in memory until sent (not streamed from provider)
 
 ### Known Issues
 
 1. **Multi-turn conversations with tools**: Currently only one turn (user → tool → assistant) is supported. Extended conversations may have issues.
-
-2. **Large tool definitions**: Very large tool schemas may not fit in Straico's context window.
-
+2. **Large tool definitions**: Very large tool schemas may not fit in provider's context window.
 3. **Debug logs**: Debug logs can be verbose. Use `LOG_LEVEL=info` or higher for production.
 
 ## Development
@@ -686,12 +751,19 @@ straico-proxy/
 ├── streaming.js              # Stream simulation logic
 ├── tools.js                  # Function calling logic
 ├── utils.js                  # Helper functions
+├── providers/                # Provider abstraction layer
+│   ├── base-provider.js        # Abstract base class
+│   ├── provider-factory.js     # Provider factory
+│   ├── straico-provider.js     # Straico implementation
+│   └── index.js                # Provider exports
 ├── package.json              # Dependencies and scripts
 ├── .env.example              # Environment variables template
 ├── .env                      # Your actual configuration (gitignored)
 ├── Dockerfile                # Docker image definition
 ├── docker-compose.yml        # Docker orchestration
 ├── .eslintrc.json            # ESLint configuration
+├── docs/                    # Documentation
+│   └── ADDING_PROVIDERS.md  # Provider implementation guide
 └── README.md                 # This file
 ```
 
@@ -705,64 +777,10 @@ When contributing:
 
 ## Security Considerations
 
-1. **Never commit `.env`** to version control
-2. **Use strong API keys** for Straico
-3. **Run behind firewall** if exposing to network
-4. **Add authentication** if exposing publicly (add middleware in server.js)
-5. **Monitor logs** for suspicious activity
-6. **Use HTTPS** in production (add reverse proxy like Nginx)
-
-## Production Deployment
-
-### Docker Production Build
-
-```bash
-docker build -t straico-proxy:latest .
-docker run -d \
-  --name straico-prod \
-  --restart unless-stopped \
-  -p 8000:8000 \
-  --env-file .env \
-  straico-proxy:latest
-```
-
-### systemd Service (Linux)
-
-Create `/etc/systemd/system/straico-proxy.service`:
-
-```ini
-[Unit]
-Description=Straico Proxy
-After=network.target
-
-[Service]
-Type=simple
-User=straico
-WorkingDirectory=/opt/straico-proxy
-ExecStart=/usr/bin/node /opt/straico-proxy/server.js
-Restart=always
-RestartSec=10
-EnvironmentFile=/opt/straico-proxy/.env
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Enable and start:
-```bash
-sudo systemctl enable straico-proxy
-sudo systemctl start straico-proxy
-sudo systemctl status straico-proxy
-```
-
-## Security
-
-This proxy is designed to be secure and suitable for public use. However, users should be aware of the following security considerations:
-
 ### For Repository Users
 
-1. **Never commit `.env` to version control** - The `.gitignore` file excludes `.env` and logs
-2. **Use strong API keys** - Obtain your Straico API key from [straico.com](https://straico.com)
+1. **Never commit `.env`** to version control
+2. **Use strong API keys** - Obtain your provider API key from official sources
 3. **Keep API keys secret** - Never share or commit API keys
 4. **Use HTTPS in production** - Add a reverse proxy with SSL when exposing publicly
 5. **Add authentication** - Consider implementing API key authentication for the proxy itself if deploying to public servers
@@ -795,10 +813,98 @@ const limiter = rateLimit({
   max: 100, // 100 requests per window
 });
 
-app.use('/v1/', limiter);
+app.use('/v2/', limiter);
 
 // Add authentication (in server.js)
-app.use('/v1/', (req, res, next) => {
+app.use('/v2/', (req, res, next) => {
+  const auth = req.headers.authorization;
+  if (!auth || auth !== `Bearer ${process.env.PROXY_API_KEY}`) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  next();
+});
+```
+
+## Production Deployment
+
+### Docker Production Build
+
+```bash
+docker build -t straico-proxy:latest .
+docker run -d \
+  --name ai-provider-prod \
+  --restart unless-stopped \
+  -p 8000:8000 \
+  --env-file .env \
+  straico-proxy:latest
+```
+
+### systemd Service (Linux)
+
+Create `/etc/systemd/system/ai-provider-proxy.service`:
+
+```ini
+[Unit]
+Description=AI Provider Proxy
+After=network.target
+
+[Service]
+Type=simple
+User=provider
+WorkingDirectory=/opt/ai-provider-proxy
+ExecStart=/usr/bin/node /opt/ai-provider-proxy/server.js
+Restart=always
+RestartSec=10
+EnvironmentFile=/opt/ai-provider-proxy/.env
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Enable and start:
+```bash
+sudo systemctl enable ai-provider-proxy
+sudo systemctl start ai-provider-proxy
+sudo systemctl status ai-provider-proxy
+```
+
+## Security
+
+This proxy is designed to be secure and suitable for public use. However, users should be aware of the following security considerations:
+
+### For Repository Users
+
+1. **Never commit `.env`** to version control
+2. **Use strong API keys** - Obtain your provider API key from official sources (Straico, OpenAI, Anthropic, etc.)
+3. **Keep API keys secret** - Never share or commit API keys
+4. **Use HTTPS in production** - Add a reverse proxy with SSL when exposing publicly
+5. **Add authentication** - Consider implementing API key authentication for the proxy itself if deploying to public servers
+6. **Monitor logs** - Regularly check for suspicious activity in `server.log` and `requests.log`
+
+### For Repository Maintainers
+
+1. **No secrets in code** - All secrets are loaded from environment variables only
+2. **No sensitive files tracked** - `.env`, `*.log`, and other sensitive files are in `.gitignore`
+3. **Regular dependency audits** - Run `npm audit fix` regularly
+4. **Keep dependencies updated** - Use `npm update` for security patches
+
+### Recommended Security Enhancements
+
+For production deployments:
+
+```javascript
+// Add rate limiting (in server.js)
+import rateLimit from 'express-rate-limit';
+
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // 100 requests per window
+});
+
+app.use('/v2/', limiter);
+
+// Add authentication (in server.js)
+app.use('/v2/', (req, res, next) => {
   const auth = req.headers.authorization;
   if (!auth || auth !== `Bearer ${process.env.PROXY_API_KEY}`) {
     return res.status(401).json({ error: 'Unauthorized' });
@@ -817,5 +923,16 @@ For issues and questions:
 1. Check Troubleshooting section above
 2. Enable debug logging: `LOG_LEVEL=debug npm start`
 3. Review logs for error messages
-4. Test API directly with curl
-5. Check Straico API status
+4. Test your provider's API directly with curl
+5. Check your provider's API status page
+
+**For provider-specific support:**
+- Straico: https://straico.com
+- OpenAI: https://platform.openai.com
+- Anthropic: https://anthropic.com
+
+**For adding new providers:**
+See [docs/ADDING_PROVIDERS.md](docs/ADDING_PROVIDERS.md) for detailed implementation guide.
+
+**For bug reports:**
+Include your provider type (`PROVIDER_TYPE`), configuration (sanitized logs), and steps to reproduce.

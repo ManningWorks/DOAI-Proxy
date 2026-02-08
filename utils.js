@@ -122,9 +122,10 @@ export function logRequestDetails(model, messages, hasTools) {
   return logData;
 }
 
-export function logStraicoResponse(response) {
+export function logProviderResponse(response, providerType) {
   const logData = {
     timestamp: new Date().toISOString(),
+    provider: providerType,
     statusCode: response.status,
     statusText: response.statusText,
     data: {
@@ -138,7 +139,7 @@ export function logStraicoResponse(response) {
     },
   };
 
-  info('Straico Response', logData);
+  info(`${providerType} Response`, logData);
 
   return logData;
 }

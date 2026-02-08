@@ -1,33 +1,34 @@
 import express from 'express';
 import dotenv from 'dotenv';
-import axios from 'axios';
+import { ProviderFactory } from './providers/index.js';
 import { simulateStream } from './streaming.js';
-import { injectToolsIntoSystem, parseToolCall, formatToolCallResponse } from './tools.js';
+import { parseToolCall, formatToolCallResponse } from './tools.js';
 import {
   delayMs,
   logRequest,
   logResponse,
   logRequestDetails,
-  logStraicoResponse,
+  logProviderResponse,
   logError,
-  formatChatCompletionResponse,
   formatSSEChunk,
   generateRequestId,
 } from './utils.js';
 
 dotenv.config();
 
-const STRAICO_API_KEY = process.env.STRAICO_API_KEY;
+const PROVIDER_TYPE = process.env.PROVIDER_TYPE || 'straico';
 
-if (!STRAICO_API_KEY) {
-  console.error('FATAL: STRAICO_API_KEY is required but not set');
+let provider;
+try {
+  provider = ProviderFactory.create(PROVIDER_TYPE, process.env);
+  provider.validateConfig();
+} catch (error) {
+  console.error(`FATAL: Provider configuration invalid: ${error.message}`);
   process.exit(1);
 }
 
 const app = express();
 const PORT = process.env.PROXY_PORT || 8000;
-const STRAICO_API_URL = process.env.STRAICO_API_URL || 'https://api.straico.com/v1';
-const STRAICO_API_TIMEOUT = parseInt(process.env.STRAICO_API_TIMEOUT) || 60000;
 
 app.use(express.json());
 
@@ -41,7 +42,11 @@ app.use(async (req, res, next) => {
 
 app.get('/health', async (req, res) => {
   const startTime = Date.now();
-  const response = { status: 'ok', service: 'straico-proxy', timestamp: new Date().toISOString() };
+  const response = { 
+    status: 'ok', 
+    service: `${PROVIDER_TYPE}-proxy`, 
+    timestamp: new Date().toISOString() 
+  };
   const responseTime = Date.now() - startTime;
   await logResponse(res, 200, response, responseTime);
   res.json(response);
@@ -82,43 +87,28 @@ app.post('/v1/chat/completions', async (req, res) => {
       return res.status(400).json(errorResponse);
     }
 
-    const processedMessages = injectToolsIntoSystem(messages, req.body.tools);
-
-    const straicoRequest = {
+    const providerRequest = provider.transformRequest({
       model: model,
-      messages: processedMessages,
-      ...otherParams,
-    };
-
-    if (!straicoRequest.temperature) {
-      straicoRequest.temperature = 0.7;
-    }
+      messages: messages,
+      tools: req.body.tools,
+      ...otherParams
+    });
 
     const requestInfo = {
-      model: straicoRequest.model,
-      messageCount: straicoRequest.messages.length,
+      model: providerRequest.model,
+      messageCount: providerRequest.messages.length,
       hasTools: !!req.body.tools,
     };
 
-    console.log(`[Straico Request] ${requestInfo.model} - ${requestInfo.messageCount} messages`);
+    console.log(`[${provider.getType()} Request] ${requestInfo.model} - ${requestInfo.messageCount} messages`);
 
     await logRequest(req, 0);
 
-    const straicoResponse = await axios.post(
-      `${STRAICO_API_URL}/chat/completions`,
-      straicoRequest,
-      {
-        headers: {
-          'Authorization': `Bearer ${STRAICO_API_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        timeout: STRAICO_API_TIMEOUT,
-      }
-    );
+    const providerResponse = await provider.makeRequest(providerRequest);
 
-    logStraicoResponse(straicoResponse);
+    logProviderResponse(providerResponse, provider.getType());
 
-    const aiResponse = straicoResponse.data.choices[0]?.message?.content || '';
+    const aiResponse = providerResponse.data.choices[0]?.message?.content || '';
 
     if (req.body.tools) {
       const toolCalls = parseToolCall(aiResponse);
@@ -140,7 +130,7 @@ app.post('/v1/chat/completions', async (req, res) => {
               const sseChunk = formatSSEChunk(
                 { content: chunk },
                 toolResponse.id,
-                straicoResponse.data.model,
+                providerResponse.data.model,
                 null
               );
               res.write(sseChunk);
@@ -149,7 +139,7 @@ app.post('/v1/chat/completions', async (req, res) => {
             const finalChunk = formatSSEChunk(
               { tool_calls: toolCalls, content: null },
               toolResponse.id,
-              straicoResponse.data.model,
+              providerResponse.data.model,
               'tool_calls'
             );
             res.write(finalChunk);
@@ -194,7 +184,7 @@ app.post('/v1/chat/completions', async (req, res) => {
 
       return;
     } else {
-      const response = formatChatCompletionResponse(straicoResponse.data, model);
+      const response = provider.transformResponse(providerResponse);
       const responseTime = Date.now() - startTime;
 
       await logResponse(res, 200, response, responseTime);
@@ -233,7 +223,8 @@ app.post('/v1/chat/completions', async (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`\n🚀 Straico Proxy running on http://localhost:${PORT}`);
+  const providerName = PROVIDER_TYPE.charAt(0).toUpperCase() + PROVIDER_TYPE.slice(1);
+  console.log(`\n🚀 ${providerName} Proxy running on http://localhost:${PORT}`);
   console.log(`📝 Health check: http://localhost:${PORT}/health`);
   console.log(`🔗 API endpoint: http://localhost:${PORT}/v1/chat/completions\n`);
 });
