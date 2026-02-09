@@ -11,6 +11,10 @@ import {
   logError,
   generateRequestId,
 } from './utils.js';
+import {
+  fetchModelLimits,
+  validateTotalContext,
+} from './utils/model-limits.js';
 
 dotenv.config();
 
@@ -198,6 +202,17 @@ app.post('/v1/chat/completions', async (req, res) => {
       return res.status(400).json(errorResponse);
     }
 
+    // Validate total context against model's word_limit
+    const estimatedInputTokens = Math.ceil(JSON.stringify(messages).length / 3.5);
+    const totalContextError = validateTotalContext(estimatedInputTokens, req.body.max_tokens, model);
+    if (totalContextError) {
+      const responseTime = Date.now() - startTime;
+      await logResponse(res, 400, totalContextError, responseTime);
+      return res.status(400).json(totalContextError);
+    }
+
+    console.log(`[Validation] max_tokens valid for model ${model}`);
+
     const providerRequest = provider.transformRequest({
       model: model,
       messages: messages,
@@ -369,29 +384,38 @@ app.post('/v1/chat/completions', async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  const providerName = PROVIDER_TYPE.charAt(0).toUpperCase() + PROVIDER_TYPE.slice(1);
-  const hasAuth = !!PROXY_API_KEY;
-  const authEnabled = AUTH_MODE === AUTH_MODES.REQUIRED || (AUTH_MODE === AUTH_MODES.OPTIONAL && hasAuth);
+// Fetch model limits at startup
+(async () => {
+  await fetchModelLimits();
+})();
 
-  console.log('\n' + '='.repeat(60));
-  console.log(`🚀 ${providerName} Proxy v1.0.0`);
-  console.log('='.repeat(60));
-  console.log(`📡 Listening:      http://0.0.0.0:${PORT}`);
-  console.log(`🔑 AUTH_MODE:      ${AUTH_MODE}`);
-  console.log(`🔑 API Key:        ${hasAuth ? '✅ Set' : '❌ Not set'}`);
-  console.log(`🔒 Auth Enabled:   ${authEnabled ? '✅ YES' : '❌ NO'}`);
-  console.log(`🏭 Environment:   ${NODE_ENV}`);
-  console.log(`🏥 Health check:  http://0.0.0.0:${PORT}/health`);
-  console.log(`🔗 API endpoint:  http://0.0.0.0:${PORT}/v1/chat/completions`);
+(async () => {
+  await fetchModelLimits();
 
-  if (!authEnabled && NODE_ENV === 'production') {
-    console.log('\n🚨 SECURITY WARNING:');
-    console.log('🚨 No authentication enabled!');
-    console.log('🚨 Ensure external security measures are in place.');
-  } else if (!authEnabled) {
-    console.log('\n💡 Tip: Set PROXY_API_KEY to enable authentication');
-  }
+  app.listen(PORT, () => {
+    const providerName = PROVIDER_TYPE.charAt(0).toUpperCase() + PROVIDER_TYPE.slice(1);
+    const hasAuth = !!PROXY_API_KEY;
+    const authEnabled = AUTH_MODE === AUTH_MODES.REQUIRED || (AUTH_MODE === AUTH_MODES.OPTIONAL && hasAuth);
 
-  console.log('='.repeat(60) + '\n');
-});
+    console.log('\n' + '='.repeat(60));
+    console.log(`🚀 ${providerName} Proxy v1.0.0`);
+    console.log('='.repeat(60));
+    console.log(`📡 Listening:      http://0.0.0.0:${PORT}`);
+    console.log(`🔑 AUTH_MODE:      ${AUTH_MODE}`);
+    console.log(`🔑 API Key:        ${hasAuth ? '✅ Set' : '❌ Not set'}`);
+    console.log(`🔒 Auth Enabled:   ${authEnabled ? '✅ YES' : '❌ NO'}`);
+    console.log(`🏭 Environment:   ${NODE_ENV}`);
+    console.log(`🏥 Health check:  http://0.0.0.0:${PORT}/health`);
+    console.log(`🔗 API endpoint:  http://0.0.0.0:${PORT}/v1/chat/completions`);
+
+    if (!authEnabled && NODE_ENV === 'production') {
+      console.log('\n🚨 SECURITY WARNING:');
+      console.log('🚨 No authentication enabled!');
+      console.log('🚨 Ensure external security measures are in place.');
+    } else if (!authEnabled) {
+      console.log('\n💡 Tip: Set PROXY_API_KEY to enable authentication');
+    }
+
+    console.log('='.repeat(60) + '\n');
+  });
+})();
