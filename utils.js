@@ -254,13 +254,6 @@ export function formatChatCompletionResponse(data, model) {
 export function formatSSEChunk(chunk, id, model, finishReason = null) {
   const delta = { ...chunk };
 
-  if (delta.tool_calls && Array.isArray(delta.tool_calls)) {
-    delta.tool_calls = delta.tool_calls.map((toolCall, index) => ({
-      ...toolCall,
-      index,
-    }));
-  }
-
   const sseData = {
     id: id,
     object: 'chat.completion.chunk',

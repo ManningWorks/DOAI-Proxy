@@ -53,39 +53,48 @@ export class StraicoProvider {
   /**
    * Transform OpenAI request to Straico format
    * @param {Object} openAIRequest - OpenAI-compatible request object
+   * @param {boolean} openAIRequest.isToolRequest - Whether this is a tool request (should filter out tool messages)
    * @returns {Object} Straico-specific request object
    */
   transformRequest(openAIRequest) {
-    const { messages, model, tools, ...otherParams } = openAIRequest;
+    const { messages, model, tools, isToolRequest, ...otherParams } = openAIRequest;
 
     const useSmartSelector = !model || model === 'auto';
+    let processedMessages = injectToolsIntoSystem(messages, tools);
+
+    if (isToolRequest) {
+      processedMessages = processedMessages.filter(msg => msg.role !== 'tool');
+      console.log(`[StraicoProvider] Filtered out tool messages. ${processedMessages.length} messages remaining`);
+    }
 
     if (useSmartSelector) {
-      const processedMessages = injectToolsIntoSystem(messages, tools);
-
       console.log('[StraicoProvider] Using smart_llm_selector with pricing_method: balance');
       return {
         smart_llm_selector: {
           quantity: 1,
           pricing_method: 'balance'
         },
-        messages: processedMessages,
-        ...otherParams
+        messages: processedMessages
       };
     }
 
-    const processedMessages = injectToolsIntoSystem(messages, tools);
-
     const straicoRequest = {
       model: model,
-      messages: processedMessages,
-      ...otherParams,
+      messages: processedMessages
     };
 
-    console.log('[StraicoProvider] Final request:', JSON.stringify(straicoRequest, null, 2));
-
-    if (!straicoRequest.temperature) {
+    if (otherParams.temperature !== undefined) {
+      straicoRequest.temperature = otherParams.temperature;
+    } else {
       straicoRequest.temperature = 0.7;
+    }
+
+    if (otherParams.max_tokens !== undefined) {
+      straicoRequest.max_tokens = otherParams.max_tokens;
+    }
+
+    if (otherParams.replace_failed_models !== undefined) {
+      straicoRequest.replace_failed_models = otherParams.replace_failed_models;
     }
 
     return straicoRequest;
@@ -99,7 +108,15 @@ export class StraicoProvider {
    */
   async makeRequest(request) {
     const url = `${this.config.apiUrl}/chat/completions`;
+    const requestSize = JSON.stringify(request).length;
+    const estimatedTokens = Math.ceil(requestSize / 4);
+
     console.log(`[StraicoProvider] Calling API: ${url} with model: ${request.model}`);
+    console.log(`[StraicoProvider] Request size: ${requestSize} chars (~${estimatedTokens} tokens)`);
+
+    const requestJson = JSON.stringify(request);
+    console.log(`[StraicoProvider] Full request body:\n${requestJson}`);
+
     const response = await axios.post(
       url,
       request,

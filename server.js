@@ -1,16 +1,14 @@
 import express from 'express';
 import dotenv from 'dotenv';
 import { ProviderFactory } from './providers/index.js';
-import { simulateStream } from './streaming.js';
+import { simulateStream, streamToolCalls } from './streaming.js';
 import { parseToolCall, formatToolCallResponse } from './tools.js';
 import {
-  delayMs,
   logRequest,
   logResponse,
   logRequestDetails,
   logProviderResponse,
   logError,
-  formatSSEChunk,
   generateRequestId,
 } from './utils.js';
 
@@ -86,7 +84,7 @@ if (authIssues.length > 0 && NODE_ENV === 'production') {
 const app = express();
 const PORT = process.env.PROXY_PORT || 8000;
 
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
 
 app.use(async (req, res, next) => {
   const requestId = generateRequestId();
@@ -168,6 +166,11 @@ app.post('/v1/chat/completions', async (req, res) => {
 
   try {
     const { messages, model, ...otherParams } = req.body;
+    
+    // Log incoming request size for debugging
+    const incomingSize = JSON.stringify(req.body).length;
+    const incomingEstimatedTokens = Math.ceil(incomingSize / 4);
+    console.log(`[Incoming Request] Model: ${model}, Size: ${incomingSize} chars (~${incomingEstimatedTokens} tokens), Messages: ${messages.length}`);
 
     logRequestDetails(model, messages, !!req.body.tools);
 
@@ -199,22 +202,40 @@ app.post('/v1/chat/completions', async (req, res) => {
       model: model,
       messages: messages,
       tools: req.body.tools,
-      ...otherParams
+      ...otherParams,
+      isToolRequest: true
     });
 
     const requestInfo = {
       model: providerRequest.model,
       messageCount: providerRequest.messages.length,
       hasTools: !!req.body.tools,
+      requestSize: JSON.stringify(providerRequest).length,
+      estimatedTokens: Math.ceil(JSON.stringify(providerRequest).length / 4),
     };
 
-    console.log(`[${provider.getType()} Request] ${requestInfo.model} - ${requestInfo.messageCount} messages`);
+    console.log(`[${provider.getType()} Request] ${requestInfo.model} - ${requestInfo.messageCount} messages (${requestInfo.requestSize} chars, ~${requestInfo.estimatedTokens} tokens)`);
 
     const providerResponse = await provider.makeRequest(providerRequest);
 
     logProviderResponse(providerResponse, provider.getType());
 
-    const aiResponse = providerResponse.data.choices[0]?.message?.content || '';
+    if (!providerResponse.data) {
+      throw new Error('No data in provider response');
+    }
+
+    if (!providerResponse.data.choices || !Array.isArray(providerResponse.data.choices) || providerResponse.data.choices.length === 0) {
+      throw new Error('No choices in provider response');
+    }
+
+    if (!providerResponse.data.choices[0].message) {
+      throw new Error('No message in first choice');
+    }
+
+    const aiResponse = providerResponse.data.choices[0].message.content || '';
+
+    console.log('[DEBUG] AI response length:', aiResponse.length);
+    console.log('[DEBUG] AI response preview:', aiResponse.substring(0, 500));
 
     if (req.body.tools) {
       const toolCalls = parseToolCall(aiResponse);
@@ -230,41 +251,7 @@ app.post('/v1/chat/completions', async (req, res) => {
           res.setHeader('Connection', 'keep-alive');
 
           try {
-            if (!aiResponse) {
-              const finalChunk = formatSSEChunk(
-                { tool_calls: toolCalls, content: null },
-                toolResponse.id,
-                providerResponse.data.model,
-                'tool_calls'
-              );
-              res.write(finalChunk);
-              res.write('data: [DONE]\n\n');
-              res.end();
-
-              const responseTime = Date.now() - startTime;
-              console.log(`[Request Complete] ${requestId} - ${responseTime}ms - Tool call response`);
-              return;
-            }
-
-            const chunks = aiResponse.match(/.{1,15}/g) || [aiResponse];
-            for (const chunk of chunks) {
-              await delayMs(80);
-              const sseChunk = formatSSEChunk(
-                { content: chunk },
-                toolResponse.id,
-                providerResponse.data.model,
-                null
-              );
-              res.write(sseChunk);
-            }
-
-            const finalChunk = formatSSEChunk(
-              { tool_calls: toolCalls, content: null },
-              toolResponse.id,
-              providerResponse.data.model,
-              'tool_calls'
-            );
-            res.write(finalChunk);
+            await streamToolCalls(toolCalls, res, toolResponse.id, providerResponse.data.model);
             res.write('data: [DONE]\n\n');
             res.end();
 
