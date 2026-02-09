@@ -17,10 +17,11 @@ export let MODEL_LIMITS = {};
  * This should be called at proxy startup to populate MODEL_LIMITS cache
  * 
  * @throws {Error} If STRAICO_API_KEY is not set
+ * @returns {Promise<void>}
  */
 export async function fetchModelLimits() {
   const { STRAICO_API_KEY, STRAICO_API_URL } = process.env;
-  
+
   if (!STRAICO_API_KEY) {
     console.warn('[Startup] STRAICO_API_KEY not set - model validation disabled');
     return;
@@ -38,7 +39,7 @@ export async function fetchModelLimits() {
 
   const apiUrl = STRAICO_API_URL || 'https://api.straico.com/v2';
   console.log(`[Startup] Fetching model limits from ${apiUrl}/models...`);
-  
+
   fetchPromise = (async () => {
     try {
       const response = await axios.get(`${apiUrl}/models`, {
@@ -71,6 +72,8 @@ export async function fetchModelLimits() {
       fetchPromise = null;
     }
   })();
+
+  return fetchPromise;
 }
 
 /**

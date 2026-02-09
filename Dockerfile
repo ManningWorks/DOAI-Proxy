@@ -8,6 +8,8 @@ RUN npm ci --only=production
 
 COPY . .
 
+RUN chmod +x docker-entrypoint.sh
+
 EXPOSE 8000
 
-CMD ["node", "server.js"]
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
