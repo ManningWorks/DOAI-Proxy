@@ -93,31 +93,23 @@ export async function streamToolCalls(toolCalls, res, id, model) {
     res.write(formatSSEChunk(initChunk, id, model, null));
 
     const args = toolCall.function.arguments;
-
+ 
     if (args.length > 0) {
-      const chunkSize = Math.max(20, Math.floor(args.length / 2));
-      let chunkCount = 0;
-
-      for (let offset = 0; offset < args.length; offset += chunkSize) {
-        const chunkEnd = Math.min(offset + chunkSize, args.length);
-        const argsChunk = {
-          tool_calls: [{
-            index: i,
-            function: {
-              arguments: args.substring(offset, chunkEnd),
-            },
-          }],
-        };
-
-        await delayMs(argsDelay);
-        res.write(formatSSEChunk(argsChunk, id, model, null));
-        chunkCount++;
-      }
-
-      console.log(`[StreamToolCalls] Sent ${chunkCount} argument chunk(s) for tool ${i}`);
+      const argsChunk = {
+        tool_calls: [{
+          index: i,
+          function: {
+            arguments: args,
+          },
+        }],
+      };
+      
+      await delayMs(argsDelay);
+      res.write(formatSSEChunk(argsChunk, id, model, null));
+      console.log(`[StreamToolCalls] Sent 1 argument chunk for tool ${i}`);
     }
   }
-
+ 
   console.log('[StreamToolCalls] Sending final chunk with finish_reason: \'tool_calls\'');
 
   const finalChunkData = {

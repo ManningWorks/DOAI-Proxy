@@ -12,23 +12,27 @@ export function injectToolsIntoSystem(messages, tools) {
     .join('\n\n');
 
   const toolInstruction = `You have access to the following tools:
-${toolDescriptions}
+ ${toolDescriptions}
 
 Tool schemas:
-${toolSchema}
+ ${toolSchema}
+
+IMPORTANT: Only use the tools listed above. Do not invent or use tools that are not in this list.
 
 When you need to use a tool, format your response like this:
 TOOL_CALL: <tool_name>
 ARGUMENTS: <json_arguments>
 
 For example:
-TOOL_CALL: search_web
-ARGUMENTS: {"query": "how to implement streaming in Node.js"}
+TOOL_CALL: bash
+ARGUMENTS: {"command": "ls -la", "description": "List files in current directory"}
 
-Only make one tool call at a time. Wait for the result before making another tool call.`;
+Only make one tool call at a time. Wait for the result before making another tool call.
+
+When you receive a tool result, analyze it and provide a helpful response to the user. If you need more information, make another tool call. If you have enough information, respond directly to the user's query.`;
 
   const result = normalizeMessages(messages);
-
+ 
   const systemIndex = result.findIndex(m => m.role === 'system');
   if (systemIndex !== -1) {
     result[systemIndex] = {
@@ -37,11 +41,11 @@ Only make one tool call at a time. Wait for the result before making another too
     };
   } else {
     result.unshift({ role: 'system', content: toolInstruction });
-  }
+  } 
 
   return result;
 }
-
+ 
 function normalizeMessages(messages) {
   return messages.map(msg => {
     const normalized = { role: msg.role };
@@ -188,18 +192,62 @@ function parseOpenAIToolCalls(responseText) {
 }
 
 function parseTextFormat(responseText) {
-  const pattern = /TOOL_CALL:\s*(\w+)\s*\n?\s*ARGUMENTS:\s*(\{(?:[^{}]|\{[^{}]*\})*\})(?:\n|$)/g;
   const toolCalls = [];
+  let currentIndex = 0;
   
-  for (const match of responseText.matchAll(pattern)) {
-    const [, toolName, argsString] = match;
-    if (!toolName || !argsString) continue;
+  const patterns = [
+    /TOOL_CALL:\s*(\w+).*?ARGUMENTS:\s*\{/is,
+    /TOOL_CALL:\s*(\w+)ARGUMENTS:\s*\{/is,
+  ];
+  
+  while (currentIndex < responseText.length) {
+    let toolCallMatch = null;
+    
+    for (const pattern of patterns) {
+      toolCallMatch = responseText.substring(currentIndex).match(pattern);
+      if (toolCallMatch) break;
+    }
+    
+    if (!toolCallMatch) break;
+    
+    const toolName = toolCallMatch[1];
+    const fullMatchText = toolCallMatch[0];
+    const matchStartIndex = currentIndex + toolCallMatch.index;
+    const argsStartIndex = matchStartIndex + fullMatchText.lastIndexOf('{');
+    
+    let braceCount = 0;
+    let argsEndIndex = argsStartIndex;
+    let foundClosingBrace = false;
+    
+    for (let i = argsStartIndex; i < responseText.length; i++) {
+      const char = responseText[i];
+      if (char === '{') {
+        braceCount++;
+      } else if (char === '}') {
+        braceCount--;
+        if (braceCount === 0) {
+          argsEndIndex = i + 1;
+          foundClosingBrace = true;
+          break;
+        }
+      }
+    }
+    
+    if (!foundClosingBrace) {
+      console.warn('[Tool Parsing] Incomplete JSON for tool call:', toolName);
+      break;
+    }
+    
+    const argsString = responseText.substring(argsStartIndex, argsEndIndex);
     
     try {
       const args = JSON.parse(argsString);
       toolCalls.push(createToolCallObject(toolName, args, toolCalls.length));
+      currentIndex = argsEndIndex;
     } catch (error) {
       console.error('Failed to parse tool call arguments:', error);
+      console.debug('[Tool Parsing] Failed to parse:', argsString.substring(0, 200));
+      break;
     }
   }
   

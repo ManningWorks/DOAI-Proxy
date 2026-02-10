@@ -247,61 +247,84 @@ app.post('/v1/chat/completions', async (req, res) => {
       throw new Error('No message in first choice');
     }
 
-    const aiResponse = providerResponse.data.choices[0].message.content || '';
+    const messageContent = providerResponse.data.choices[0].message.content;
+    
+    let aiResponse = messageContent || '';
 
-    console.log('[DEBUG] AI response length:', aiResponse.length);
-    console.log('[DEBUG] AI response preview:', aiResponse.substring(0, 500));
+    if (!aiResponse && req.body.tools) {
+      console.warn('[Empty Response] Model returned empty response with tools requested');
+      aiResponse = '';
+    }
 
     if (req.body.tools) {
       const toolCalls = parseToolCall(aiResponse);
-
+  
       if (toolCalls) {
-        console.log(`[Tool Call Detected] ${toolCalls.map(t => t.function.name).join(', ')}`);
-
-        const toolResponse = formatToolCallResponse(toolCalls);
-
-        if (req.body.stream) {
-          res.setHeader('Content-Type', 'text/event-stream');
-          res.setHeader('Cache-Control', 'no-cache');
-          res.setHeader('Connection', 'keep-alive');
-
-          try {
-            await streamToolCalls(toolCalls, res, toolResponse.id, providerResponse.data.model);
-            res.write('data: [DONE]\n\n');
-            res.end();
-
-            const responseTime = Date.now() - startTime;
-            console.log(`[Request Complete] ${requestId} - ${responseTime}ms - Tool call response`);
-
-            return;
-          } catch (streamError) {
-            console.error('Failed to stream AI response:', streamError);
-
-            const errorChunk = {
-              id: `chatcmpl-${Date.now()}`,
-              object: 'chat.completion.chunk',
-              created: Math.floor(Date.now() / 1000),
-              model: providerResponse.data.model,
-              choices: [{
-                index: 0,
-                delta: {},
-                finish_reason: 'error',
-              }],
-            };
-
-            res.write(`data: ${JSON.stringify(errorChunk)}\n\n`);
-            res.write('data: [DONE]\n\n');
-            res.end();
-
-            const responseTime = Date.now() - startTime;
-            console.log(`[Request Failed] ${requestId} - ${responseTime}ms - Tool call streaming error`);
-            return;
+        const availableToolNames = new Set(req.body.tools.map(t => t.function.name));
+        console.debug(`[Tool Validation] Available tools: ${[...availableToolNames].join(', ')}`);
+        const validToolCalls = toolCalls.filter(tc => availableToolNames.has(tc.function.name));
+        const invalidToolNames = toolCalls
+          .filter(tc => !availableToolNames.has(tc.function.name))
+          .map(tc => tc.function.name);
+        
+        if (invalidToolNames.length > 0) {
+          console.warn(`[Tool Validation] Filtered ${invalidToolNames.length} invalid tool(s): ${invalidToolNames.join(', ')}`);
+        }
+        
+        if (validToolCalls.length === 0) {
+          console.warn('[Tool Validation] No valid tool calls remaining, treating as text response');
+          if (aiResponse === '.') {
+            aiResponse = '';
           }
         } else {
-          const responseTime = Date.now() - startTime;
-          await logResponse(res, 200, toolResponse, responseTime);
-          res.json(toolResponse);
-          return;
+          console.log(`[Tool Call Detected] ${validToolCalls.map(t => t.function.name).join(', ')}`);
+          
+          const toolResponse = formatToolCallResponse(validToolCalls);
+
+ 
+          if (req.body.stream) {
+            res.setHeader('Content-Type', 'text/event-stream');
+            res.setHeader('Cache-Control', 'no-cache');
+            res.setHeader('Connection', 'keep-alive');
+ 
+            try {
+              await streamToolCalls(validToolCalls, res, toolResponse.id, providerResponse.data.model);
+              res.write('data: [DONE]\n\n');
+              res.end();
+ 
+              const responseTime = Date.now() - startTime;
+              console.log(`[Request Complete] ${requestId} - ${responseTime}ms - Tool call response`);
+ 
+              return;
+            } catch (streamError) {
+              console.error('Failed to stream AI response:', streamError);
+ 
+              const errorChunk = {
+                id: `chatcmpl-${Date.now()}`,
+                object: 'chat.completion.chunk',
+                created: Math.floor(Date.now() / 1000),
+                model: providerResponse.data.model,
+                choices: [{
+                  index: 0,
+                  delta: {},
+                  finish_reason: 'error',
+                }],
+              };
+ 
+              res.write(`data: ${JSON.stringify(errorChunk)}\n\n`);
+              res.write('data: [DONE]\n\n');
+              res.end();
+ 
+              const responseTime = Date.now() - startTime;
+              console.log(`[Request Failed] ${requestId} - ${responseTime}ms - Tool call streaming error`);
+              return;
+            }
+          } else {
+            const responseTime = Date.now() - startTime;
+            await logResponse(res, 200, toolResponse, responseTime);
+            res.json(toolResponse);
+            return;
+          }
         }
       }
     }

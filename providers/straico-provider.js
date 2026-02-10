@@ -58,13 +58,47 @@ export class StraicoProvider {
    */
   transformRequest(openAIRequest) {
     const { messages, model, tools, isToolRequest, ...otherParams } = openAIRequest;
-
+ 
     const useSmartSelector = !model || model === 'auto';
     let processedMessages = injectToolsIntoSystem(messages, tools);
 
     if (isToolRequest) {
-      processedMessages = processedMessages.filter(msg => msg.role !== 'tool');
-      console.log(`[StraicoProvider] Filtered out tool messages. ${processedMessages.length} messages remaining`);
+      const beforeFilter = processedMessages.length;
+      const enhancedMessages = [];
+      
+      for (let i = 0; i < processedMessages.length; i++) {
+        const msg = processedMessages[i];
+        const nextMsg = processedMessages[i + 1];
+        
+        if (msg.role === 'tool') {
+          continue;
+        }
+        
+        if (msg.role === 'assistant' && (!msg.content || msg.content.trim() === '')) {
+          console.log('[StraicoProvider] Filtering empty assistant message');
+          continue;
+        }
+        
+        enhancedMessages.push(msg);
+        
+        if (nextMsg && nextMsg.role === 'tool') {
+          const toolResult = typeof nextMsg.content === 'string' 
+            ? nextMsg.content 
+            : JSON.stringify(nextMsg.content);
+          enhancedMessages.push({
+            role: 'user',
+            content: `[Tool Result]: ${toolResult.substring(0, 5000)}${toolResult.length > 5000 ? '...' : ''}`
+          });
+        }
+      }
+      
+      processedMessages = enhancedMessages;
+      
+      if (processedMessages.length === 0) {
+        throw new Error('No messages remaining after filtering tool and empty assistant messages');
+      }
+      
+      console.log(`[StraicoProvider] Filtered ${beforeFilter - processedMessages.length} messages (tool + empty assistant). ${processedMessages.length} messages remaining`);
     }
 
     if (useSmartSelector) {
@@ -113,9 +147,6 @@ export class StraicoProvider {
 
     console.log(`[StraicoProvider] Calling API: ${url} with model: ${request.model}`);
     console.log(`[StraicoProvider] Request size: ${requestSize} chars (~${estimatedTokens} tokens)`);
-
-    const requestJson = JSON.stringify(request);
-    console.log(`[StraicoProvider] Full request body:\n${requestJson}`);
 
     const response = await axios.post(
       url,
