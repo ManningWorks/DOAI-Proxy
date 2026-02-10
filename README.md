@@ -29,7 +29,7 @@ Provider API (Straico, OpenAI, Anthropic, etc.)
 ### Key Components
 
 - **server.js** - Express server that handles all requests and orchestrates proxy logic
-- **streaming.js** - Module that converts non-streaming responses into SSE format with 3 streaming modes
+- **streaming.js** - Module that converts non-streaming responses into SSE format with 2 streaming modes
 - **tools.js** - Module that handles function calling by injecting tools into prompts and parsing responses
 - **utils.js** - Helper functions for logging, delays, and response formatting
 - **providers/** - Provider abstraction layer supporting multiple AI providers
@@ -138,7 +138,7 @@ Environment variables are defined in `.env`:
 | `STRAICO_API_URL` | Straico API base URL | `https://api.straico.com/v2` |
 | `STRAICO_API_TIMEOUT` | Straico API timeout (ms) | `60000` |
 | `PROXY_PORT` | Proxy server port | `8000` |
-| `STREAM_MODE` | Streaming mode: `none`, `simple`, or `smart` | `smart` |
+| `STREAM_MODE` | Streaming mode: `none` (fastest), `smart` (demo/showcase) | `none` (recommended) |
 | `STREAM_CHUNK_SIZE` | Characters per SSE chunk (used by `smart` mode) | `15` |
 | `STREAM_DELAY_MS` | Delay between chunks (ms) | `80` |
 | `LOG_LEVEL` | Logging verbosity (debug, info, warn, error) | `info` |
@@ -161,26 +161,29 @@ OPENAI_API_URL=https://api.openai.com/v1
 
 ### Tuning Streaming
 
-The proxy supports three streaming modes to balance formatting preservation with streaming "feel":
+The proxy supports two streaming modes:
 
 **Streaming Modes:**
-- **`none`**: Send whole response in 1-2 chunks (100% formatting preserved)
-- **`simple`**: Split into 2-3 chunks at newlines (95% formatting preserved)
-- **`smart`**: Boundary-aware chunking with ~15-char target (90% formatting preserved, default)
+- **`none` (default, recommended)**: Send response as-is with zero artificial delays
+  - 100% formatting preserved
+  - Fastest response time
+  - Recommended for production use
+
+- **`smart` (demo/showcase only)**: Simulated streaming with boundary-aware chunking
+  - May occasionally split markdown formatting (~90% preserved)
+  - Slower than `none` mode due to artificial delays
+  - For demos or when streaming visual effect is desired
 
 **Example Configuration:**
 ```bash
-# Best formatting, minimal streaming feel
+# Production: fastest, no formatting issues
 STREAM_MODE=none
 
-# Good balance of formatting and streaming
-STREAM_MODE=simple
-
-# Maximum streaming feel with good formatting (default)
+# Demo/showcase: character-by-character streaming
 STREAM_MODE=smart
 ```
 
-**Adjusting Smart Mode:**
+**Adjusting Smart Mode (Demo Only):**
 ```bash
 # Smoother, faster
 STREAM_CHUNK_SIZE=25
@@ -191,30 +194,27 @@ STREAM_CHUNK_SIZE=8
 STREAM_DELAY_MS=100
 ```
 
-**Recommendation:** Use `simple` mode for production - good formatting with minimal chunking.
+**Note:** The `smart` mode provides simulated streaming visual effect but adds artificial delays. For real-time streaming, use providers with native streaming support.
 
 ## How It Works
 
 ### Streaming Simulation
 
-The proxy supports three streaming modes configured via `STREAM_MODE`:
+The proxy supports two streaming modes configured via `STREAM_MODE`:
 
 1. Proxy accepts requests with `stream: true`
 2. Makes non-streaming call to provider API
 3. Waits for full response
 4. Chunks response based on `STREAM_MODE`:
-   - `none`: Send whole response in 1-2 chunks
-   - `simple`: Split into 2-3 chunks at natural boundaries (newlines)
-   - `smart`: Boundary-aware chunking with ~15-char target (default)
-5. Adds delay between chunks (default 80ms)
+   - `none`: Send response as-is (default, no chunking, no delays)
+   - `smart`: Boundary-aware chunking with ~15-char target (demo mode)
+5. Adds delay between chunks (only in `smart` mode, default 80ms)
 6. Sends chunks as SSE (Server-Sent Events)
 7. Sends `[DONE]` marker when complete
 
 **Why these defaults?**
-- 15 chars = readable chunks that aren't too choppy (smart mode)
-- 2-3 chunks = good balance between streaming feel and formatting (simple mode)
-- 80ms = feels like real streaming (similar to actual LLM streaming)
-- Total time for 500-word response: ~40-60 seconds (realistic)
+- `none` mode: Fastest response, no formatting issues, honest about non-streaming provider
+- `smart` mode: Provides demo/showcase visual effect with character-by-character chunks and delays
 
 ### Function Calling
 
@@ -724,8 +724,9 @@ curl -X POST http://localhost:8000/v2/chat/completions \
 - **Simulated, not real-time**: Streaming is simulated by chunking and delaying non-streaming responses
 - **Configurable behavior**: Chunking strategy depends on `STREAM_MODE` setting
 - **Total time**: Longer responses take proportionally longer to stream
-- **Smart mode limitations**: May still occasionally break markdown in complex cases (though significantly improved)
-- **Format preservation**: `none` mode = 100%, `simple` mode = ~95%, `smart` mode = ~90%
+- **Smart mode limitations**: May occasionally split markdown in complex cases (~90% preserved)
+- **Format preservation**: `none` mode = 100%, `smart` mode = ~90%
+- **No actual streaming benefit**: `smart` mode adds delays, making it slower than `none` mode
 
 ### Function Calling Limitations
 

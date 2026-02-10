@@ -2,18 +2,21 @@ import { delayMs } from './utils.js';
 
 const STREAM_MODES = {
   NONE: 'none',
-  SIMPLE: 'simple',
   SMART: 'smart',
 };
 
 function validateStreamMode(mode) {
   const validModes = Object.values(STREAM_MODES);
-  const normalizedMode = mode ? mode.toLowerCase() : STREAM_MODES.SMART;
-  
+  const normalizedMode = mode ? mode.toLowerCase() : STREAM_MODES.NONE;
+
   if (!validModes.includes(normalizedMode)) {
     throw new Error(`Invalid STREAM_MODE: ${mode}. Must be one of: ${validModes.join(', ')}`);
   }
-  
+
+  if (normalizedMode === 'simple') {
+    throw new Error('STREAM_MODE=simple has been removed. Use STREAM_MODE=none or STREAM_MODE=smart');
+  }
+
   return normalizedMode;
 }
 
@@ -53,74 +56,6 @@ async function simulateStreamNone(responseText, res) {
   };
 
   res.write(`data: ${JSON.stringify(sseData)}\n\n`);
-
-  const finalChunk = {
-    id: `chatcmpl-${Date.now()}`,
-    object: 'chat.completion.chunk',
-    created: Math.floor(Date.now() / 1000),
-    model: 'straico-proxy',
-    choices: [{
-      index: 0,
-      delta: {},
-      finish_reason: 'stop',
-    }],
-  };
-
-  res.write(`data: ${JSON.stringify(finalChunk)}\n\n`);
-  res.write('data: [DONE]\n\n');
-  res.end();
-}
-
-async function simulateStreamSimple(responseText, res, delay = 80) {
-  if (typeof responseText !== 'string') {
-    throw new Error('responseText must be a string');
-  }
-
-  if (!responseText) {
-    const finalChunk = {
-      id: `chatcmpl-${Date.now()}`,
-      object: 'chat.completion.chunk',
-      created: Math.floor(Date.now() / 1000),
-      model: 'straico-proxy',
-      choices: [{
-        index: 0,
-        delta: {},
-        finish_reason: 'stop',
-      }],
-    };
-    res.write(`data: ${JSON.stringify(finalChunk)}\n\n`);
-    res.write('data: [DONE]\n\n');
-    res.end();
-    return;
-  }
-
-  const lines = responseText.split('\n');
-  const numChunks = Math.min(3, Math.max(1, Math.ceil(lines.length / 5)));
-  const chunkSize = Math.ceil(lines.length / numChunks);
-  const chunks = [];
-
-  for (let i = 0; i < lines.length; i += chunkSize) {
-    const chunkLines = lines.slice(i, i + chunkSize);
-    chunks.push(chunkLines.join('\n'));
-  }
-
-  for (const chunk of chunks) {
-    await delayMs(delay);
-
-    const sseData = {
-      id: `chatcmpl-${Date.now()}`,
-      object: 'chat.completion.chunk',
-      created: Math.floor(Date.now() / 1000),
-      model: 'straico-proxy',
-      choices: [{
-        index: 0,
-        delta: { content: chunk },
-        finish_reason: null,
-      }],
-    };
-
-    res.write(`data: ${JSON.stringify(sseData)}\n\n`);
-  }
 
   const finalChunk = {
     id: `chatcmpl-${Date.now()}`,
@@ -276,18 +211,16 @@ function findSafeBoundary(text, start, end, maxSize) {
 
 export async function simulateStream(responseText, res, config = {}) {
   const { chunkSize = 15, delay = 80 } = config;
-  
+
   const streamMode = validateStreamMode(process.env.STREAM_MODE);
-  
+
   switch (streamMode) {
   case STREAM_MODES.NONE:
     return simulateStreamNone(responseText, res, delay);
-  case STREAM_MODES.SIMPLE:
-    return simulateStreamSimple(responseText, res, delay);
   case STREAM_MODES.SMART:
     return simulateStreamSmart(responseText, res, chunkSize, delay);
   default:
-    throw new Error(`Unexpected stream mode: ${streamMode}`);
+    return simulateStreamNone(responseText, res, delay);
   }
 }
 
