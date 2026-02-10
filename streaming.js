@@ -1,8 +1,23 @@
-import { delayMs, formatSSEChunk } from './utils.js';
+import { delayMs } from './utils.js';
 
-export async function simulateStream(responseText, res, config = {}) {
-  const { chunkSize = 15, delay = 80 } = config;
+const STREAM_MODES = {
+  NONE: 'none',
+  SIMPLE: 'simple',
+  SMART: 'smart',
+};
 
+function validateStreamMode(mode) {
+  const validModes = Object.values(STREAM_MODES);
+  const normalizedMode = mode ? mode.toLowerCase() : STREAM_MODES.SMART;
+  
+  if (!validModes.includes(normalizedMode)) {
+    throw new Error(`Invalid STREAM_MODE: ${mode}. Must be one of: ${validModes.join(', ')}`);
+  }
+  
+  return normalizedMode;
+}
+
+async function simulateStreamNone(responseText, res) {
   if (typeof responseText !== 'string') {
     throw new Error('responseText must be a string');
   }
@@ -25,7 +40,69 @@ export async function simulateStream(responseText, res, config = {}) {
     return;
   }
 
-  const chunks = responseText.match(new RegExp(`.{1,${chunkSize}}`, 'g')) || [responseText];
+  const sseData = {
+    id: `chatcmpl-${Date.now()}`,
+    object: 'chat.completion.chunk',
+    created: Math.floor(Date.now() / 1000),
+    model: 'straico-proxy',
+    choices: [{
+      index: 0,
+      delta: { content: responseText },
+      finish_reason: null,
+    }],
+  };
+
+  res.write(`data: ${JSON.stringify(sseData)}\n\n`);
+
+  const finalChunk = {
+    id: `chatcmpl-${Date.now()}`,
+    object: 'chat.completion.chunk',
+    created: Math.floor(Date.now() / 1000),
+    model: 'straico-proxy',
+    choices: [{
+      index: 0,
+      delta: {},
+      finish_reason: 'stop',
+    }],
+  };
+
+  res.write(`data: ${JSON.stringify(finalChunk)}\n\n`);
+  res.write('data: [DONE]\n\n');
+  res.end();
+}
+
+async function simulateStreamSimple(responseText, res, delay = 80) {
+  if (typeof responseText !== 'string') {
+    throw new Error('responseText must be a string');
+  }
+
+  if (!responseText) {
+    const finalChunk = {
+      id: `chatcmpl-${Date.now()}`,
+      object: 'chat.completion.chunk',
+      created: Math.floor(Date.now() / 1000),
+      model: 'straico-proxy',
+      choices: [{
+        index: 0,
+        delta: {},
+        finish_reason: 'stop',
+      }],
+    };
+    res.write(`data: ${JSON.stringify(finalChunk)}\n\n`);
+    res.write('data: [DONE]\n\n');
+    res.end();
+    return;
+  }
+
+  const lines = responseText.split('\n');
+  const numChunks = Math.min(3, Math.max(1, Math.ceil(lines.length / 5)));
+  const chunkSize = Math.ceil(lines.length / numChunks);
+  const chunks = [];
+
+  for (let i = 0; i < lines.length; i += chunkSize) {
+    const chunkLines = lines.slice(i, i + chunkSize);
+    chunks.push(chunkLines.join('\n'));
+  }
 
   for (const chunk of chunks) {
     await delayMs(delay);
@@ -62,6 +139,158 @@ export async function simulateStream(responseText, res, config = {}) {
   res.end();
 }
 
+async function simulateStreamSmart(responseText, res, chunkSize = 15, delay = 80) {
+  if (typeof responseText !== 'string') {
+    throw new Error('responseText must be a string');
+  }
+
+  if (!responseText) {
+    const finalChunk = {
+      id: `chatcmpl-${Date.now()}`,
+      object: 'chat.completion.chunk',
+      created: Math.floor(Date.now() / 1000),
+      model: 'straico-proxy',
+      choices: [{
+        index: 0,
+        delta: {},
+        finish_reason: 'stop',
+      }],
+    };
+    res.write(`data: ${JSON.stringify(finalChunk)}\n\n`);
+    res.write('data: [DONE]\n\n');
+    res.end();
+    return;
+  }
+
+  const chunks = smartChunkText(responseText, chunkSize);
+
+  for (const chunk of chunks) {
+    await delayMs(delay);
+
+    const sseData = {
+      id: `chatcmpl-${Date.now()}`,
+      object: 'chat.completion.chunk',
+      created: Math.floor(Date.now() / 1000),
+      model: 'straico-proxy',
+      choices: [{
+        index: 0,
+        delta: { content: chunk },
+        finish_reason: null,
+      }],
+    };
+
+    res.write(`data: ${JSON.stringify(sseData)}\n\n`);
+  }
+
+  const finalChunk = {
+    id: `chatcmpl-${Date.now()}`,
+    object: 'chat.completion.chunk',
+    created: Math.floor(Date.now() / 1000),
+    model: 'straico-proxy',
+    choices: [{
+      index: 0,
+      delta: {},
+      finish_reason: 'stop',
+    }],
+  };
+
+  res.write(`data: ${JSON.stringify(finalChunk)}\n\n`);
+  res.write('data: [DONE]\n\n');
+  res.end();
+}
+
+function smartChunkText(text, targetSize) {
+  const chunks = [];
+  const maxSize = targetSize * 10;
+  let pos = 0;
+
+  while (pos < text.length) {
+    let endPos = Math.min(pos + targetSize, text.length);
+
+    if (endPos === text.length) {
+      chunks.push(text.substring(pos));
+      break;
+    }
+
+    const safePos = findSafeBoundary(text, pos, endPos, maxSize);
+    chunks.push(text.substring(pos, safePos));
+    pos = safePos;
+  }
+
+  return chunks;
+}
+
+function findSafeBoundary(text, start, end, maxSize) {
+  const markdownDelimiters = ['**', '__', '```', '`'];
+
+  for (let i = end; i > start; i--) {
+    if (text[i] === '\n') {
+      return i + 1;
+    }
+  }
+
+  for (const delim of markdownDelimiters) {
+    const delimStart = text.indexOf(delim, start);
+    if (delimStart !== -1 && delimStart < end) {
+      const delimEnd = delimStart + delim.length;
+      if (delimEnd > end) {
+        const extendedPos = Math.min(delimEnd, text.length, start + maxSize);
+        if (extendedPos > end) {
+          return extendedPos;
+        }
+      }
+    }
+  }
+
+  for (let i = end; i > start; i--) {
+    if (text[i] === ' ' || text[i] === '\t') {
+      return i + 1;
+    }
+  }
+
+  const extendedEnd = Math.min(start + maxSize, text.length);
+  for (let i = extendedEnd; i > end; i--) {
+    if (text[i] === '\n') {
+      return i + 1;
+    }
+  }
+
+  for (const delim of markdownDelimiters) {
+    const delimStart = text.indexOf(delim, start);
+    if (delimStart !== -1 && delimStart < extendedEnd) {
+      const delimEnd = delimStart + delim.length;
+      if (delimEnd > extendedEnd) {
+        return delimEnd;
+      }
+    }
+  }
+
+  for (let i = extendedEnd; i > end; i--) {
+    if (text[i] === ' ' || text[i] === '\t') {
+      return i + 1;
+    }
+  }
+
+  return end;
+}
+
+export async function simulateStream(responseText, res, config = {}) {
+  const { chunkSize = 15, delay = 80 } = config;
+  
+  const streamMode = validateStreamMode(process.env.STREAM_MODE);
+  
+  switch (streamMode) {
+  case STREAM_MODES.NONE:
+    return simulateStreamNone(responseText, res, delay);
+  case STREAM_MODES.SIMPLE:
+    return simulateStreamSimple(responseText, res, delay);
+  case STREAM_MODES.SMART:
+    return simulateStreamSmart(responseText, res, chunkSize, delay);
+  default:
+    throw new Error(`Unexpected stream mode: ${streamMode}`);
+  }
+}
+
 export async function streamToolCalls(toolCalls, res, id, model) {
   if (!toolCalls || toolCalls.length === 0) {
     return;
@@ -90,10 +319,20 @@ export async function streamToolCalls(toolCalls, res, id, model) {
     };
 
     await delayMs(initDelay);
-    res.write(formatSSEChunk(initChunk, id, model, null));
+    res.write(`data: ${JSON.stringify({
+      id: id,
+      object: 'chat.completion.chunk',
+      created: Math.floor(Date.now() / 1000),
+      model: model,
+      choices: [{
+        index: 0,
+        delta: initChunk,
+        finish_reason: null,
+      }],
+    })}\n\n`);
 
     const args = toolCall.function.arguments;
- 
+
     if (args.length > 0) {
       const argsChunk = {
         tool_calls: [{
@@ -103,13 +342,23 @@ export async function streamToolCalls(toolCalls, res, id, model) {
           },
         }],
       };
-      
+
       await delayMs(argsDelay);
-      res.write(formatSSEChunk(argsChunk, id, model, null));
+      res.write(`data: ${JSON.stringify({
+        id: id,
+        object: 'chat.completion.chunk',
+        created: Math.floor(Date.now() / 1000),
+        model: model,
+        choices: [{
+          index: 0,
+          delta: argsChunk,
+          finish_reason: null,
+        }],
+      })}\n\n`);
       console.log(`[StreamToolCalls] Sent 1 argument chunk for tool ${i}`);
     }
   }
- 
+
   console.log('[StreamToolCalls] Sending final chunk with finish_reason: \'tool_calls\'');
 
   const finalChunkData = {

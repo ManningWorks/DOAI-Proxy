@@ -343,7 +343,7 @@ app.post('/v1/chat/completions', async (req, res) => {
         });
 
         const responseTime = Date.now() - startTime;
-        console.log(`[Request Complete] ${requestId} - ${responseTime}ms - Streaming response`);
+        console.log(`[Request Complete] ${requestId} - ${responseTime}ms - Streaming response (${process.env.STREAM_MODE || 'smart'} mode)`);
         return;
       } catch (streamError) {
         console.error('Streaming error:', streamError);

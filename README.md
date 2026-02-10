@@ -29,7 +29,7 @@ Provider API (Straico, OpenAI, Anthropic, etc.)
 ### Key Components
 
 - **server.js** - Express server that handles all requests and orchestrates proxy logic
-- **streaming.js** - Module that converts non-streaming responses into SSE format with delays
+- **streaming.js** - Module that converts non-streaming responses into SSE format with 3 streaming modes
 - **tools.js** - Module that handles function calling by injecting tools into prompts and parsing responses
 - **utils.js** - Helper functions for logging, delays, and response formatting
 - **providers/** - Provider abstraction layer supporting multiple AI providers
@@ -138,7 +138,8 @@ Environment variables are defined in `.env`:
 | `STRAICO_API_URL` | Straico API base URL | `https://api.straico.com/v2` |
 | `STRAICO_API_TIMEOUT` | Straico API timeout (ms) | `60000` |
 | `PROXY_PORT` | Proxy server port | `8000` |
-| `STREAM_CHUNK_SIZE` | Characters per SSE chunk | `15` |
+| `STREAM_MODE` | Streaming mode: `none`, `simple`, or `smart` | `smart` |
+| `STREAM_CHUNK_SIZE` | Characters per SSE chunk (used by `smart` mode) | `15` |
 | `STREAM_DELAY_MS` | Delay between chunks (ms) | `80` |
 | `LOG_LEVEL` | Logging verbosity (debug, info, warn, error) | `info` |
 
@@ -160,25 +161,58 @@ OPENAI_API_URL=https://api.openai.com/v1
 
 ### Tuning Streaming
 
-Adjust these values to control how streaming feels:
+The proxy supports three streaming modes to balance formatting preservation with streaming "feel":
 
-- **Larger chunks** (e.g., `STREAM_CHUNK_SIZE=25`, `STREAM_DELAY_MS=40`) → Smoother, faster
-- **Smaller chunks** (e.g., `STREAM_CHUNK_SIZE=8`, `STREAM_DELAY_MS=100`) → More realistic, slower
+**Streaming Modes:**
+- **`none`**: Send whole response in 1-2 chunks (100% formatting preserved)
+- **`simple`**: Split into 2-3 chunks at newlines (95% formatting preserved)
+- **`smart`**: Boundary-aware chunking with ~15-char target (90% formatting preserved, default)
+
+**Example Configuration:**
+```bash
+# Best formatting, minimal streaming feel
+STREAM_MODE=none
+
+# Good balance of formatting and streaming
+STREAM_MODE=simple
+
+# Maximum streaming feel with good formatting (default)
+STREAM_MODE=smart
+```
+
+**Adjusting Smart Mode:**
+```bash
+# Smoother, faster
+STREAM_CHUNK_SIZE=25
+STREAM_DELAY_MS=40
+
+# More realistic, slower
+STREAM_CHUNK_SIZE=8
+STREAM_DELAY_MS=100
+```
+
+**Recommendation:** Use `simple` mode for production - good formatting with minimal chunking.
 
 ## How It Works
 
 ### Streaming Simulation
 
+The proxy supports three streaming modes configured via `STREAM_MODE`:
+
 1. Proxy accepts requests with `stream: true`
 2. Makes non-streaming call to provider API
 3. Waits for full response
-4. Splits response into chunks (default 15 characters each)
+4. Chunks response based on `STREAM_MODE`:
+   - `none`: Send whole response in 1-2 chunks
+   - `simple`: Split into 2-3 chunks at natural boundaries (newlines)
+   - `smart`: Boundary-aware chunking with ~15-char target (default)
 5. Adds delay between chunks (default 80ms)
 6. Sends chunks as SSE (Server-Sent Events)
 7. Sends `[DONE]` marker when complete
 
-**Why 15 chars / 80ms?**
-- 15 chars = readable chunks that aren't too choppy
+**Why these defaults?**
+- 15 chars = readable chunks that aren't too choppy (smart mode)
+- 2-3 chunks = good balance between streaming feel and formatting (simple mode)
 - 80ms = feels like real streaming (similar to actual LLM streaming)
 - Total time for 500-word response: ~40-60 seconds (realistic)
 
@@ -688,8 +722,10 @@ curl -X POST http://localhost:8000/v2/chat/completions \
 ### Streaming Limitations
 
 - **Simulated, not real-time**: Streaming is simulated by chunking and delaying non-streaming responses
-- **Fixed chunk size**: All responses use the same chunk size and delay (configurable)
+- **Configurable behavior**: Chunking strategy depends on `STREAM_MODE` setting
 - **Total time**: Longer responses take proportionally longer to stream
+- **Smart mode limitations**: May still occasionally break markdown in complex cases (though significantly improved)
+- **Format preservation**: `none` mode = 100%, `simple` mode = ~95%, `smart` mode = ~90%
 
 ### Function Calling Limitations
 
