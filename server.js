@@ -1,5 +1,6 @@
 import express from 'express';
 import dotenv from 'dotenv';
+import crypto from 'crypto';
 import { ProviderFactory } from './providers/index.js';
 import { simulateStream, streamToolCalls } from './streaming.js';
 import { parseToolCall, formatToolCallResponse } from './tools.js';
@@ -31,6 +32,22 @@ const AUTH_MODE = process.env.AUTH_MODE || (
 );
 const PROXY_API_KEY = process.env.PROXY_API_KEY;
 const NODE_ENV = process.env.NODE_ENV || 'development';
+
+function timingSafeEqual(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string') {
+    return false;
+  }
+  try {
+    const bufA = Buffer.from(a, 'utf8');
+    const bufB = Buffer.from(b, 'utf8');
+    if (bufA.length !== bufB.length) {
+      return false;
+    }
+    return crypto.timingSafeEqual(bufA, bufB);
+  } catch {
+    return false;
+  }
+}
 
 function validateAuthConfig() {
   const issues = [];
@@ -87,14 +104,34 @@ if (authIssues.length > 0 && NODE_ENV === 'production') {
 
 const app = express();
 const PORT = process.env.PROXY_PORT || 8000;
+const SHUTDOWN_TIMEOUT = parseInt(process.env.SHUTDOWN_TIMEOUT) || 30000;
+
+let activeRequests = 0;
+let isShuttingDown = false;
+let server = null;
 
 app.use(express.json({ limit: '50mb' }));
 
 app.use(async (req, res, next) => {
+  if (isShuttingDown) {
+    return res.status(503).json({
+      error: {
+        message: 'Server is shutting down',
+        type: 'service_unavailable'
+      }
+    });
+  }
+
+  activeRequests++;
   const requestId = generateRequestId();
   res.setHeader('X-Request-ID', requestId);
   res.locals.requestStartTime = Date.now();
   await logRequest(req, 0);
+
+  res.on('finish', () => {
+    activeRequests--;
+  });
+
   next();
 });
 
@@ -107,19 +144,10 @@ if (AUTH_MODE === AUTH_MODES.REQUIRED || AUTH_MODE === AUTH_MODES.OPTIONAL) {
     const auth = req.headers['authorization'];
     const expectedAuth = `Bearer ${PROXY_API_KEY}`;
 
-    if (!auth) {
+    if (!auth || !timingSafeEqual(auth, expectedAuth)) {
       return res.status(401).json({
         error: {
-          message: 'Missing Authorization header',
-          type: 'authentication_error'
-        }
-      });
-    }
-
-    if (auth !== expectedAuth) {
-      return res.status(401).json({
-        error: {
-          message: 'Invalid API key',
+          message: !auth ? 'Missing Authorization header' : 'Invalid API key',
           type: 'authentication_error'
         }
       });
@@ -394,6 +422,33 @@ app.post('/v1/chat/completions', async (req, res) => {
     if (error.response) {
       await logResponse(res, error.response.status, error.response.data, responseTime);
       res.status(error.response.status).json(error.response.data);
+    } else if (error.statusCode) {
+      const errorResponse = {
+        error: {
+          message: error.message,
+          type: 'invalid_request_error',
+        },
+      };
+      await logResponse(res, error.statusCode, errorResponse, responseTime);
+      res.status(error.statusCode).json(errorResponse);
+    } else if (error.code === 'ECONNREFUSED' || error.code === 'ENOTFOUND' || error.code === 'ECONNRESET') {
+      const errorResponse = {
+        error: {
+          message: 'Upstream service unavailable',
+          type: 'upstream_error',
+        },
+      };
+      await logResponse(res, 502, errorResponse, responseTime);
+      res.status(502).json(errorResponse);
+    } else if (error.code === 'ETIMEDOUT' || error.code === 'ECONNABORTED') {
+      const errorResponse = {
+        error: {
+          message: 'Upstream service timeout',
+          type: 'upstream_error',
+        },
+      };
+      await logResponse(res, 504, errorResponse, responseTime);
+      res.status(504).json(errorResponse);
     } else {
       const errorResponse = {
         error: {
@@ -407,15 +462,34 @@ app.post('/v1/chat/completions', async (req, res) => {
   }
 });
 
-// Fetch model limits at startup
-(async () => {
-  await fetchModelLimits();
-})();
+function gracefulShutdown(signal) {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
+
+  console.log(`\n[Shutdown] Received ${signal}, draining ${activeRequests} active request(s)...`);
+
+  const forceExit = setTimeout(() => {
+    console.log(`[Shutdown] Force exiting with ${activeRequests} request(s) still active`);
+    process.exit(1);
+  }, SHUTDOWN_TIMEOUT);
+
+  const checkDrain = setInterval(() => {
+    if (activeRequests === 0) {
+      clearInterval(checkDrain);
+      clearTimeout(forceExit);
+      console.log('[Shutdown] All requests completed, exiting gracefully');
+      server?.close(() => process.exit(0));
+    }
+  }, 100);
+}
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 (async () => {
   await fetchModelLimits();
 
-  app.listen(PORT, () => {
+  server = app.listen(PORT, () => {
     const providerName = PROVIDER_TYPE.charAt(0).toUpperCase() + PROVIDER_TYPE.slice(1);
     const hasAuth = !!PROXY_API_KEY;
     const authEnabled = AUTH_MODE === AUTH_MODES.REQUIRED || (AUTH_MODE === AUTH_MODES.OPTIONAL && hasAuth);

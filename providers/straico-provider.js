@@ -1,6 +1,14 @@
 import axios from 'axios';
+import { Agent } from 'https';
 import { injectToolsIntoSystem } from '../tools.js';
 import { formatChatCompletionResponse } from '../utils.js';
+
+const httpsAgent = new Agent({
+  keepAlive: true,
+  maxSockets: 50,
+  maxFreeSockets: 10,
+  timeout: 60000,
+});
 
 /**
  * StraicoProvider - Straico API provider implementation
@@ -95,7 +103,9 @@ export class StraicoProvider {
       processedMessages = enhancedMessages;
       
       if (processedMessages.length === 0) {
-        throw new Error('No messages remaining after filtering tool and empty assistant messages');
+        const error = new Error('No messages remaining after filtering tool and empty assistant messages');
+        error.statusCode = 400;
+        throw error;
       }
       
       console.log(`[StraicoProvider] Filtered ${beforeFilter - processedMessages.length} messages (tool + empty assistant). ${processedMessages.length} messages remaining`);
@@ -157,6 +167,7 @@ export class StraicoProvider {
           'Content-Type': 'application/json',
         },
         timeout: this.config.timeout,
+        httpsAgent,
       }
     );
 
