@@ -1,3 +1,5 @@
+const TOOL_INJECTION_SENTINEL = '<!-- proxy-tools-injected -->';
+
 export function injectToolsIntoSystem(messages, tools) {
   if (!tools || tools.length === 0) {
     return normalizeMessages(messages);
@@ -7,15 +9,8 @@ export function injectToolsIntoSystem(messages, tools) {
     .map(t => `- ${t.function.name}: ${t.function.description}`)
     .join('\n');
 
-  const toolSchema = tools
-    .map(t => `${t.function.name}: ${JSON.stringify(t.function.parameters)}`)
-    .join('\n\n');
-
   const toolInstruction = `You have access to the following tools:
  ${toolDescriptions}
-
-Tool schemas:
- ${toolSchema}
 
 IMPORTANT: Only use the tools listed above. Do not invent or use tools that are not in this list.
 
@@ -32,16 +27,19 @@ Only make one tool call at a time. Wait for the result before making another too
 When you receive a tool result, analyze it and provide a helpful response to the user. If you need more information, make another tool call. If you have enough information, respond directly to the user's query.`;
 
   const result = normalizeMessages(messages);
- 
+
   const systemIndex = result.findIndex(m => m.role === 'system');
   if (systemIndex !== -1) {
+    if (result[systemIndex].content.includes(TOOL_INJECTION_SENTINEL)) {
+      return result;
+    }
     result[systemIndex] = {
       role: 'system',
-      content: `${result[systemIndex].content}\n\n${toolInstruction}`
+      content: `${result[systemIndex].content}\n\n${toolInstruction}\n${TOOL_INJECTION_SENTINEL}`
     };
   } else {
-    result.unshift({ role: 'system', content: toolInstruction });
-  } 
+    result.unshift({ role: 'system', content: `${toolInstruction}\n${TOOL_INJECTION_SENTINEL}` });
+  }
 
   return result;
 }

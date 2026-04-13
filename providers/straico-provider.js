@@ -1,7 +1,9 @@
 import axios from 'axios';
 import { Agent } from 'https';
+import { BaseProvider } from './base-provider.js';
 import { injectToolsIntoSystem } from '../tools.js';
 import { formatChatCompletionResponse } from '../utils.js';
+import { summarizeIfNeeded } from '../summarizer.js';
 
 const httpsAgent = new Agent({
   keepAlive: true,
@@ -21,8 +23,9 @@ const httpsAgent = new Agent({
  * - No native function calling support (requires prompt injection)
  * - OpenAI-compatible request/response format
  */
-export class StraicoProvider {
+export class StraicoProvider extends BaseProvider {
   constructor(config) {
+    super(config);
     this.config = {
       apiKey: config.STRAICO_API_KEY,
       apiUrl: config.STRAICO_API_URL || 'https://api.straico.com/v2',
@@ -62,13 +65,19 @@ export class StraicoProvider {
    * Transform OpenAI request to Straico format
    * @param {Object} openAIRequest - OpenAI-compatible request object
    * @param {boolean} openAIRequest.isToolRequest - Whether this is a tool request (should filter out tool messages)
-   * @returns {Object} Straico-specific request object
+   * @returns {Promise<Object>} Straico-specific request object
    */
-  transformRequest(openAIRequest) {
+  async transformRequest(openAIRequest) {
     const { messages, model, tools, isToolRequest, ...otherParams } = openAIRequest;
  
     const useSmartSelector = !model || model === 'auto';
     let processedMessages = injectToolsIntoSystem(messages, tools);
+
+    const summarizationResult = await summarizeIfNeeded(processedMessages, model);
+    processedMessages = summarizationResult.messages;
+
+    const toolResultMaxLength = parseInt(process.env.TOOL_RESULT_MAX_LENGTH);
+    const hasToolResultLimit = !isNaN(toolResultMaxLength) && toolResultMaxLength > 0;
 
     if (isToolRequest) {
       const beforeFilter = processedMessages.length;
@@ -93,10 +102,19 @@ export class StraicoProvider {
           const toolResult = typeof nextMsg.content === 'string' 
             ? nextMsg.content 
             : JSON.stringify(nextMsg.content);
-          enhancedMessages.push({
-            role: 'user',
-            content: `[Tool Result]: ${toolResult.substring(0, 5000)}${toolResult.length > 5000 ? '...' : ''}`
-          });
+
+          if (hasToolResultLimit && toolResult.length > toolResultMaxLength) {
+            console.warn(`[StraicoProvider] Tool result truncated: ${toolResult.length} chars exceeds limit of ${toolResultMaxLength}`);
+            enhancedMessages.push({
+              role: 'user',
+              content: `[Tool Result]: ${toolResult.substring(0, toolResultMaxLength)}\n[TRUNCATED: ${toolResult.length} chars total, showing ${toolResultMaxLength}]`
+            });
+          } else {
+            enhancedMessages.push({
+              role: 'user',
+              content: `[Tool Result]: ${toolResult}`
+            });
+          }
         }
       }
       

@@ -82,7 +82,7 @@ curl http://localhost:8000/health
 
 ```bash
 # Basic chat test
-curl -X POST http://localhost:8000/v2/chat/completions \
+curl -X POST http://localhost:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
     "model": "anthropic/claude-sonnet-4.5",
@@ -557,7 +557,7 @@ Will support standard OpenAI models when OpenAI provider is implemented:
 Each provider has its own set of available models. To see what models are available:
 
 1. Check your provider's API documentation
-2. Test with `/v2/models` endpoint (when implemented)
+2. Test with `/v1/models` endpoint (when implemented)
 3. Configure specific models in your client (e.g., OpenCode)
 
 ## Next Steps

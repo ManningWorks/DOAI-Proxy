@@ -15,30 +15,33 @@ export let MODEL_LIMITS = {};
 /**
  * Fetch model limits from Straico v2 API
  * This should be called at proxy startup to populate MODEL_LIMITS cache
- * 
+ *
+ * @param {Object} [options] - Fetch options
+ * @param {boolean} [options.force=false] - Force refresh even if limits are already loaded
  * @throws {Error} If STRAICO_API_KEY is not set
- * @returns {Promise<void>}
+ * @returns {Promise<{success: boolean, count: number, error?: string}>}
  */
-export async function fetchModelLimits() {
+export async function fetchModelLimits({ force = false } = {}) {
   const { STRAICO_API_KEY, STRAICO_API_URL } = process.env;
 
   if (!STRAICO_API_KEY) {
-    console.warn('[Startup] STRAICO_API_KEY not set - model validation disabled');
-    return;
+    console.warn('[ModelLimits] STRAICO_API_KEY not set - model validation disabled');
+    return { success: false, count: Object.keys(MODEL_LIMITS).length, error: 'STRAICO_API_KEY not set' };
   }
 
-  if (Object.keys(MODEL_LIMITS).length > 0) {
-    console.log('[Startup] Model limits already loaded, skipping fetch');
-    return;
+  if (!force && Object.keys(MODEL_LIMITS).length > 0 && !fetchPromise) {
+    console.log('[ModelLimits] Limits already loaded, skipping fetch');
+    return { success: true, count: Object.keys(MODEL_LIMITS).length };
   }
 
-  if (fetchPromise) {
-    console.log('[Startup] Model limits fetch already in progress - reusing in-progress fetch');
+  if (fetchPromise && !force) {
+    console.log('[ModelLimits] Fetch already in progress - reusing in-progress fetch');
     return fetchPromise;
   }
 
   const apiUrl = STRAICO_API_URL || 'https://api.straico.com/v2';
-  console.log(`[Startup] Fetching model limits from ${apiUrl}/models...`);
+  const logPrefix = force ? '[ModelLimits/Refresh]' : '[Startup]';
+  console.log(`${logPrefix} Fetching model limits from ${apiUrl}/models...`);
 
   fetchPromise = (async () => {
     try {
@@ -50,7 +53,7 @@ export async function fetchModelLimits() {
         timeout: 10000,
       });
 
-      MODEL_LIMITS = response.data.data.reduce((acc, model) => {
+      const newLimits = response.data.data.reduce((acc, model) => {
         if (model.object === 'model') {
           acc[model.id] = {
             max_output: model.max_output,
@@ -63,11 +66,17 @@ export async function fetchModelLimits() {
         return acc;
       }, {});
 
-      console.log(`[Startup] Loaded ${Object.keys(MODEL_LIMITS).length} model limits`);
+      MODEL_LIMITS = newLimits;
+      console.log(`${logPrefix} Loaded ${Object.keys(MODEL_LIMITS).length} model limits`);
+
+      return { success: true, count: Object.keys(MODEL_LIMITS).length };
     } catch (error) {
-      console.warn('[Startup] Failed to fetch model limits:', error.message);
-      console.warn('[Startup] Model validation will not work until fixed');
-      console.warn('[Startup] Proxy will start without model validation (requests may fail with 500 errors)');
+      console.warn(`${logPrefix} Failed to fetch model limits:`, error.message);
+      if (!force) {
+        console.warn('[Startup] Model validation will not work until fixed');
+        console.warn('[Startup] Proxy will start without model validation (requests may fail with 500 errors)');
+      }
+      return { success: false, count: Object.keys(MODEL_LIMITS).length, error: error.message };
     } finally {
       fetchPromise = null;
     }

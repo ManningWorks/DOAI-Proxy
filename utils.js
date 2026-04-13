@@ -135,7 +135,7 @@ export function formatError(error, context = {}) {
 
 export async function logRequest(req, responseTime = 0) {
   // Rotate log if needed (only checks size if file is already large)
-  await rotateLogIfNeeded('requests.log');
+  await rotateLogIfNeeded(LOG_FILE_PATHS.requests);
   
   const logData = {
     timestamp: new Date().toISOString(),
@@ -160,7 +160,7 @@ export async function logRequest(req, responseTime = 0) {
 
 export async function logResponse(res, statusCode, responseData, responseTime = 0) {
   // Rotate log if needed (only checks size if file is already large)
-  await rotateLogIfNeeded('requests.log');
+  await rotateLogIfNeeded(LOG_FILE_PATHS.requests);
   
   const logData = {
     timestamp: new Date().toISOString(),

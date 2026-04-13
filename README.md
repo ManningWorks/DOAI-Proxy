@@ -14,7 +14,7 @@ This proxy sits between your OpenAI-compatible client (OpenCode, etc.) and the p
 
 1. **Streaming Simulation**: Converts non-streaming provider responses into Server-Sent Events (SSE) with simulated chunking and delays
 2. **Function Calling**: Converts tool definitions into system prompts and parses AI responses to detect and format tool calls (for providers without native support)
-3. **OpenAI Compatibility**: Presents an OpenAI-compatible API interface (`/v2/chat/completions`)
+3. **OpenAI Compatibility**: Presents an OpenAI-compatible API interface (`/v1/chat/completions`)
 
 ## Architecture
 
@@ -272,7 +272,7 @@ ARGUMENTS: {"location": "Tokyo"}
 
 ## API Endpoints
 
-### POST /v2/chat/completions
+### POST /v1/chat/completions
 
 Main chat endpoint that supports both streaming and function calling.
 
@@ -395,7 +395,7 @@ curl http://localhost:8000/health
 
 **Note:** The `service` field reflects the provider type (e.g., `straico-proxy`, `openai-proxy`).
 
-### GET /v2/models
+### GET /v1/models
 
 List available models (currently not implemented for all providers, returns empty array).
 
@@ -404,7 +404,7 @@ List available models (currently not implemented for all providers, returns empt
 ### Basic Chat (Non-Streaming)
 
 ```bash
-curl -X POST http://localhost:8000/v2/chat/completions \
+curl -X POST http://localhost:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
     "model": "gpt-3.5-turbo",
@@ -416,7 +416,7 @@ curl -X POST http://localhost:8000/v2/chat/completions \
 ### Streaming Response
 
 ```bash
-curl -X POST http://localhost:8000/v2/chat/completions \
+curl -X POST http://localhost:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
     "model": "gpt-3.5-turbo",
@@ -428,7 +428,7 @@ curl -X POST http://localhost:8000/v2/chat/completions \
 ### Function Calling
 
 ```bash
-curl -X POST http://localhost:8000/v2/chat/completions \
+curl -X POST http://localhost:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
     "model": "gpt-3.5-turbo",
@@ -460,7 +460,7 @@ curl -X POST http://localhost:8000/v2/chat/completions \
 ```javascript
 import fetch from 'node-fetch';
 
-const response = await fetch('http://localhost:8000/v2/chat/completions', {
+const response = await fetch('http://localhost:8000/v1/chat/completions', {
   method: 'POST',
   headers: {
     'Content-Type': 'application/json',
@@ -708,7 +708,7 @@ curl http://localhost:8000/health
 ### Test Basic Request
 
 ```bash
-curl -X POST http://localhost:8000/v2/chat/completions \
+curl -X POST http://localhost:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
     "model": "gpt-3.5-turbo",
@@ -740,7 +740,7 @@ curl -X POST http://localhost:8000/v2/chat/completions \
 
 - **No actual streaming**: Providers without native streaming (like Straico) have streaming simulated by the proxy
 - **No actual function calling**: Providers without native function calling (like Straico) use prompt injection
-- **Model list**: `/v2/models` endpoint returns empty (not implemented)
+- **Model list**: `/v1/models` endpoint returns empty (not implemented)
 - **Provider-specific limitations**: Each provider has its own API limitations (rate limits, context window, etc.)
 
 ### Other Limitations
@@ -853,10 +853,10 @@ const limiter = rateLimit({
   max: 100, // 100 requests per window
 });
 
-app.use('/v2/', limiter);
+app.use('/v1/', limiter);
 
 // Add authentication (in server.js)
-app.use('/v2/', (req, res, next) => {
+app.use('/v1/', (req, res, next) => {
   const auth = req.headers.authorization;
   if (!auth || auth !== `Bearer ${process.env.PROXY_API_KEY}`) {
     return res.status(401).json({ error: 'Unauthorized' });
@@ -941,10 +941,10 @@ const limiter = rateLimit({
   max: 100, // 100 requests per window
 });
 
-app.use('/v2/', limiter);
+app.use('/v1/', limiter);
 
 // Add authentication (in server.js)
-app.use('/v2/', (req, res, next) => {
+app.use('/v1/', (req, res, next) => {
   const auth = req.headers.authorization;
   if (!auth || auth !== `Bearer ${process.env.PROXY_API_KEY}`) {
     return res.status(401).json({ error: 'Unauthorized' });

@@ -13,9 +13,12 @@ import {
   generateRequestId,
 } from './utils.js';
 import {
+  MODEL_LIMITS,
   fetchModelLimits,
   validateTotalContext,
 } from './utils/model-limits.js';
+
+const MODEL_LIMITS_REFRESH_INTERVAL = parseInt(process.env.MODEL_LIMITS_REFRESH_INTERVAL, 10) || 0;
 
 dotenv.config();
 
@@ -109,6 +112,7 @@ const SHUTDOWN_TIMEOUT = parseInt(process.env.SHUTDOWN_TIMEOUT) || 30000;
 let activeRequests = 0;
 let isShuttingDown = false;
 let server = null;
+let modelRefreshTimer = null;
 
 app.use(express.json({ limit: '50mb' }));
 
@@ -180,6 +184,30 @@ if (AUTH_MODE === AUTH_MODES.EXTERNAL) {
   }
 }
 
+function requireAdminAuth(req, res, next) {
+  if (AUTH_MODE === AUTH_MODES.DISABLED) {
+    return next();
+  }
+
+  if (!PROXY_API_KEY) {
+    return next();
+  }
+
+  const auth = req.headers['authorization'];
+  const expectedAuth = `Bearer ${PROXY_API_KEY}`;
+
+  if (!auth || !timingSafeEqual(auth, expectedAuth)) {
+    return res.status(401).json({
+      error: {
+        message: !auth ? 'Missing Authorization header' : 'Invalid API key',
+        type: 'authentication_error'
+      }
+    });
+  }
+
+  next();
+}
+
 app.get('/health', async (req, res) => {
   const startTime = Date.now();
   const response = { 
@@ -190,6 +218,29 @@ app.get('/health', async (req, res) => {
   const responseTime = Date.now() - startTime;
   await logResponse(res, 200, response, responseTime);
   res.json(response);
+});
+
+app.get('/v1/models', (req, res) => {
+  const data = Object.entries(MODEL_LIMITS).map(([id, info]) => ({
+    object: 'model',
+    id,
+    name: info.name,
+    owned_by: 'straico',
+  }));
+  res.json({ object: 'list', data });
+});
+
+app.post('/v1/admin/refresh-models', requireAdminAuth, async (req, res) => {
+  try {
+    const result = await fetchModelLimits({ force: true });
+    if (result.success) {
+      res.json({ message: 'Model limits refreshed', model_count: result.count });
+    } else {
+      res.status(500).json({ error: { message: result.error, type: 'refresh_error' } });
+    }
+  } catch (error) {
+    res.status(500).json({ error: { message: error.message, type: 'refresh_error' } });
+  }
 });
 
 app.post('/v1/chat/completions', async (req, res) => {
@@ -241,7 +292,7 @@ app.post('/v1/chat/completions', async (req, res) => {
 
     console.log(`[Validation] max_tokens valid for model ${model}`);
 
-    const providerRequest = provider.transformRequest({
+    const providerRequest = await provider.transformRequest({
       model: model,
       messages: messages,
       tools: req.body.tools,
@@ -259,7 +310,7 @@ app.post('/v1/chat/completions', async (req, res) => {
 
     console.log(`[${provider.getType()} Request] ${requestInfo.model} - ${requestInfo.messageCount} messages (${requestInfo.requestSize} chars, ~${requestInfo.estimatedTokens} tokens)`);
 
-    const providerResponse = await provider.makeRequest(providerRequest);
+    const providerResponse = await provider.makeRequestWithRetry(providerRequest);
 
     logProviderResponse(providerResponse, provider.getType());
 
@@ -468,6 +519,11 @@ function gracefulShutdown(signal) {
 
   console.log(`\n[Shutdown] Received ${signal}, draining ${activeRequests} active request(s)...`);
 
+  if (modelRefreshTimer) {
+    clearInterval(modelRefreshTimer);
+    modelRefreshTimer = null;
+  }
+
   const forceExit = setTimeout(() => {
     console.log(`[Shutdown] Force exiting with ${activeRequests} request(s) still active`);
     process.exit(1);
@@ -488,6 +544,16 @@ process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 (async () => {
   await fetchModelLimits();
+
+  if (MODEL_LIMITS_REFRESH_INTERVAL > 0) {
+    console.log(`[ModelLimits] Periodic refresh enabled: every ${MODEL_LIMITS_REFRESH_INTERVAL}ms`);
+    modelRefreshTimer = setInterval(async () => {
+      const result = await fetchModelLimits({ force: true });
+      if (!result.success) {
+        console.warn(`[ModelLimits] Background refresh failed: ${result.error}`);
+      }
+    }, MODEL_LIMITS_REFRESH_INTERVAL);
+  }
 
   server = app.listen(PORT, () => {
     const providerName = PROVIDER_TYPE.charAt(0).toUpperCase() + PROVIDER_TYPE.slice(1);
