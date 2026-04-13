@@ -11,7 +11,7 @@ sleep 2
 
 echo "2. Testing health endpoint..."
 HEALTH_RESPONSE=$(curl -s http://localhost:8000/health)
-if [ "$HEALTH_RESPONSE" = '{"status":"ok","service":"straico-proxy"}' ]; then
+if [ "$HEALTH_RESPONSE" = '{"status":"ok","service":"doai-proxy"}' ]; then
   echo "   ✓ Health check passed"
 else
   echo "   ✗ Health check failed"

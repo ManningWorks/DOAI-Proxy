@@ -1,6 +1,6 @@
 # Docker Deployment Guide
 
-This guide helps you deploy the AI Provider Proxy on any machine using Docker.
+This guide helps you deploy DOAI Proxy using Docker.
 
 ## Prerequisites
 
@@ -15,7 +15,7 @@ This guide helps you deploy the AI Provider Proxy on any machine using Docker.
 ```bash
 # Clone from repository (if available)
 git clone <repository-url>
-cd ai-provider-proxy
+cd doai-proxy
 
 # OR copy project files to target machine
 # - server.js
@@ -65,7 +65,7 @@ docker-compose up -d --build
 docker-compose ps
 
 # View logs
-docker logs ai-provider-proxy
+docker logs doai-proxy
 ```
 
 ### 4. Verify Deployment
@@ -75,7 +75,7 @@ docker logs ai-provider-proxy
 curl http://localhost:8000/health
 
 # Expected output:
-# {"status":"ok","service":"straico-proxy","timestamp":"2026-02-04T23:30:00.000Z"}
+# {"status":"ok","service":"doai-proxy","timestamp":"2026-02-04T23:30:00.000Z"}
 ```
 
 ### 5. Test the Proxy
@@ -187,7 +187,7 @@ docker-compose down
 docker-compose restart
 
 # View logs (follow)
-docker logs ai-provider-proxy -f
+docker logs doai-proxy -f
 ```
 
 ### Update Configuration
@@ -278,7 +278,7 @@ To access the proxy from another machine or expose it publicly:
 Edit `docker-compose.yml`:
 ```yaml
 services:
-  ai-provider-proxy:
+  doai-proxy:
     # ... other config ...
     ports:
       - "0.0.0.0:8000"  # Expose on all interfaces
@@ -325,7 +325,7 @@ server {
 
 ```bash
 # Check logs
-docker logs ai-provider-proxy
+docker logs doai-proxy
 
 # Check if port is in use
 lsof -i :8000
@@ -344,7 +344,7 @@ sudo systemctl status docker
 docker-compose ps
 
 # Verify port is exposed
-docker port ai-provider-proxy
+docker port doai-proxy
 
 # Check health endpoint
 curl http://localhost:8000/health
@@ -354,13 +354,13 @@ curl http://localhost:8000/health
 
 ```bash
 # Check .env is mounted correctly
-docker exec ai-provider-proxy cat /app/.env
+docker exec doai-proxy cat /app/.env
 
 # Verify environment variables
-docker exec ai-provider-proxy env | grep API_KEY
+docker exec doai-proxy env | grep API_KEY
 
 # Check which provider you're using
-docker exec ai-provider-proxy env | grep PROVIDER_TYPE
+docker exec doai-proxy env | grep PROVIDER_TYPE
 
 # Test API key directly with provider
 # For Straico:
@@ -390,7 +390,7 @@ LOG_LEVEL=debug
 docker-compose restart
 
 # Check logs for AI response format
-docker logs ai-provider-proxy | grep -i "tool_call"
+docker logs doai-proxy | grep -i "tool_call"
 ```
 
 ### Streaming Feels Unnatural
@@ -408,7 +408,7 @@ docker-compose restart
 
 ```bash
 # Check error details in logs
-docker logs ai-provider-proxy
+docker logs doai-proxy
 
 # Check provider API is accessible
 # For Straico:
@@ -449,20 +449,20 @@ curl https://api.straico.com/v2/models \
 3. **Monitoring**:
    ```bash
    # View resource usage
-   docker stats ai-provider-proxy
+   docker stats doai-proxy
 
    # View logs in real-time
-   docker logs ai-provider-proxy -f
+   docker logs doai-proxy -f
 
    # Check container health
-   docker inspect ai-provider-proxy --format='{{.State.Health.Status}}'
+   docker inspect doai-proxy --format='{{.State.Health.Status}}'
    ```
 
 ### Backup and Restore
 
 ```bash
 # Export container configuration
-docker inspect ai-provider-proxy > ai-provider-proxy-config.json
+docker inspect doai-proxy > doai-proxy-config.json
 
 # Backup .env file (don't commit to git!)
 cp .env .env.backup
@@ -483,9 +483,9 @@ version: '3.8'
 
 services:
   # Straico Instance
-  straico-proxy:
+  doai-proxy:
     build: .
-    container_name: straico-proxy
+    container_name: doai-proxy
     ports:
       - "8000:8000"
     env_file:
@@ -523,7 +523,7 @@ OPENAI_API_KEY=your_openai_key
 Start specific instances:
 ```bash
 # Start only Straico
-docker-compose up -d straico-proxy
+docker-compose up -d doai-proxy
 
 # Start only OpenAI
 docker-compose up -d openai-proxy
@@ -574,7 +574,7 @@ After deploying successfully:
 ## Support
 
 For issues or questions:
-1. Check logs: `docker logs ai-provider-proxy`
+1. Check logs: `docker logs doai-proxy`
 2. Enable debug logging: Add `LOG_LEVEL=debug` to `.env` and restart
 3. Test your provider's API directly with curl
 4. Review main README.md for additional troubleshooting

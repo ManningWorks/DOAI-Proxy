@@ -30,7 +30,7 @@ async function simulateStreamNone(responseText, res) {
       id: `chatcmpl-${Date.now()}`,
       object: 'chat.completion.chunk',
       created: Math.floor(Date.now() / 1000),
-      model: 'straico-proxy',
+      model: 'doai-proxy',
       choices: [{
         index: 0,
         delta: {},
@@ -47,7 +47,7 @@ async function simulateStreamNone(responseText, res) {
     id: `chatcmpl-${Date.now()}`,
     object: 'chat.completion.chunk',
     created: Math.floor(Date.now() / 1000),
-    model: 'straico-proxy',
+    model: 'doai-proxy',
     choices: [{
       index: 0,
       delta: { content: responseText },
@@ -61,7 +61,7 @@ async function simulateStreamNone(responseText, res) {
     id: `chatcmpl-${Date.now()}`,
     object: 'chat.completion.chunk',
     created: Math.floor(Date.now() / 1000),
-    model: 'straico-proxy',
+    model: 'doai-proxy',
     choices: [{
       index: 0,
       delta: {},
@@ -84,7 +84,7 @@ async function simulateStreamSmart(responseText, res, chunkSize = 15, delay = 80
       id: `chatcmpl-${Date.now()}`,
       object: 'chat.completion.chunk',
       created: Math.floor(Date.now() / 1000),
-      model: 'straico-proxy',
+      model: 'doai-proxy',
       choices: [{
         index: 0,
         delta: {},
@@ -106,7 +106,7 @@ async function simulateStreamSmart(responseText, res, chunkSize = 15, delay = 80
       id: `chatcmpl-${Date.now()}`,
       object: 'chat.completion.chunk',
       created: Math.floor(Date.now() / 1000),
-      model: 'straico-proxy',
+      model: 'doai-proxy',
       choices: [{
         index: 0,
         delta: { content: chunk },
@@ -121,7 +121,7 @@ async function simulateStreamSmart(responseText, res, chunkSize = 15, delay = 80
     id: `chatcmpl-${Date.now()}`,
     object: 'chat.completion.chunk',
     created: Math.floor(Date.now() / 1000),
-    model: 'straico-proxy',
+    model: 'doai-proxy',
     choices: [{
       index: 0,
       delta: {},

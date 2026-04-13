@@ -212,7 +212,7 @@ app.get('/health', async (req, res) => {
   const startTime = Date.now();
   const response = { 
     status: 'ok', 
-    service: `${PROVIDER_TYPE}-proxy`, 
+    service: 'doai-proxy', 
     timestamp: new Date().toISOString() 
   };
   const responseTime = Date.now() - startTime;
@@ -556,12 +556,12 @@ process.on('SIGINT', () => gracefulShutdown('SIGINT'));
   }
 
   server = app.listen(PORT, () => {
-    const providerName = PROVIDER_TYPE.charAt(0).toUpperCase() + PROVIDER_TYPE.slice(1);
     const hasAuth = !!PROXY_API_KEY;
     const authEnabled = AUTH_MODE === AUTH_MODES.REQUIRED || (AUTH_MODE === AUTH_MODES.OPTIONAL && hasAuth);
 
     console.log('\n' + '='.repeat(60));
-    console.log(`🚀 ${providerName} Proxy v1.0.0`);
+    console.log('🚀 DOAI Proxy v1.0.0');
+    console.log('   Definitely OpenAI. (It\'s definitely not.)');
     console.log('='.repeat(60));
     console.log(`📡 Listening:      http://0.0.0.0:${PORT}`);
     console.log(`🔑 AUTH_MODE:      ${AUTH_MODE}`);

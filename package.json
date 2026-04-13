@@ -1,7 +1,7 @@
 {
-  "name": "straico-proxy",
+  "name": "doai-proxy",
   "version": "1.0.0",
-  "description": "Local proxy for Straico API with streaming and function calling",
+  "description": "DOAI Proxy - Definitely OpenAI (it's definitely not). OpenAI-compatible proxy with streaming and tool calling for providers that lack them.",
   "main": "server.js",
   "type": "module",
   "scripts": {

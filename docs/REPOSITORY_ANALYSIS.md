@@ -1,4 +1,6 @@
-# Opencode-Straico-Proxy: Detailed Repository Analysis
+# DOAI Proxy: Detailed Repository Analysis
+
+> **Definitely OpenAI.** *(It's definitely not.)*
 
 ---
 

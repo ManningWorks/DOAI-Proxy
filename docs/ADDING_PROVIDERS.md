@@ -1,6 +1,6 @@
 # Adding a New Provider
 
-This guide explains how to add a new AI provider to StraicoProxy.
+This guide explains how to add a new AI provider to DOAI Proxy.
 
 ## Provider Interface
 

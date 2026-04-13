@@ -1,29 +1,34 @@
-# AI Provider Proxy
+# DOAI Proxy
 
-OpenAI-compatible proxy that adds streaming and function calling support to AI provider APIs that lack these features, making them compatible with tools like OpenCode.
+**Definitely OpenAI.** *(It's definitely not.)*
 
-**Currently supports Straico with extensible architecture for future providers.**
+An OpenAI-compatible API proxy that makes any AI provider speak the OpenAI protocol — complete with streaming and function calling — even when the provider supports neither.
+
+**Currently powered by Straico, with an extensible architecture for future providers.**
 
 ## What This Project Does
 
-Many AI provider APIs are OpenAI-compatible but lack two critical features:
-- **Streaming responses** - Real-time text generation
-- **Function calling / tool use** - Ability to call external functions
+Some AI providers are *almost* OpenAI-compatible — close enough to tease you, but missing the two features you actually need:
 
-This proxy sits between your OpenAI-compatible client (OpenCode, etc.) and the provider API, simulating these missing features by:
+- **Streaming responses** — Real-time text generation via SSE
+- **Function calling / tool use** — Structured tool invocation
 
-1. **Streaming Simulation**: Converts non-streaming provider responses into Server-Sent Events (SSE) with simulated chunking and delays
-2. **Function Calling**: Converts tool definitions into system prompts and parses AI responses to detect and format tool calls (for providers without native support)
-3. **OpenAI Compatibility**: Presents an OpenAI-compatible API interface (`/v1/chat/completions`)
+DOAI Proxy sits between your client and the provider, convincingly pretending to be OpenAI by:
+
+1. **Streaming Simulation**: Converts non-streaming provider responses into Server-Sent Events (SSE) with simulated chunking
+2. **Function Calling**: Injects tool definitions into prompts, parses AI responses, and formats them as proper `tool_calls` objects
+3. **OpenAI Compatibility**: Presents a fully OpenAI-compatible API (`/v1/chat/completions`, `/v1/models`)
+
+The client never knows the difference. That's the whole point.
 
 ## Architecture
 
 ```
 OpenAI-Compatible Client (OpenCode, etc.)
-    ↓ (expects streaming + function calls)
-AI Provider Proxy (localhost:8000)
-    ↓ (transforms to provider format)
-Provider API (Straico, OpenAI, Anthropic, etc.)
+    ↓ "Hi, I'd like to speak to OpenAI please"
+DOAI Proxy (localhost:8000)
+    ↓ "One moment... *frantically translates*"
+Provider API (Straico, etc.)
 ```
 
 ### Key Components
@@ -38,31 +43,6 @@ Provider API (Straico, OpenAI, Anthropic, etc.)
   - **straico-provider.js** - Straico API implementation
   - More providers can be added in future
 
-### Provider System
-
-This proxy uses a provider-based architecture to support multiple AI providers. Currently, Straico is the only supported provider, but the system is designed to be easily extended.
-
-**Supported Providers:**
-- **Straico**: API aggregator with streaming simulation and function calling
-- **OpenAI**: Coming soon (will support native streaming and function calling)
-- **Anthropic**: Coming soon (will support native streaming and function calling)
-
-**Provider Configuration:**
-Set the provider type using the `PROVIDER_TYPE` environment variable:
-
-```bash
-PROVIDER_TYPE=straico  # Currently only option
-```
-
-**Adding New Providers:**
-The provider system is designed to be extensible. To add support for a new provider:
-1. Create a new provider class in `providers/` directory
-2. Implement the `BaseProvider` interface
-3. Add the provider to `ProviderFactory`
-4. Add environment variables for the provider's credentials
-
-See [docs/ADDING_PROVIDERS.md](docs/ADDING_PROVIDERS.md) for detailed instructions.
-
 ## Installation
 
 ### Prerequisites
@@ -75,7 +55,7 @@ See [docs/ADDING_PROVIDERS.md](docs/ADDING_PROVIDERS.md) for detailed instructio
 1. **Clone the repository**:
    ```bash
    git clone <repository-url>
-   cd straico-proxy
+   cd doai-proxy
    ```
 
 2. **Install dependencies**:
@@ -116,7 +96,7 @@ See [docs/ADDING_PROVIDERS.md](docs/ADDING_PROVIDERS.md) for detailed instructio
 
    Expected output:
    ```json
-   {"status":"ok","service":"straico-proxy","timestamp":"2026-02-04T23:30:00.000Z"}
+   {"status":"ok","service":"doai-proxy","timestamp":"2026-02-04T23:30:00.000Z"}
    ```
 
 ## Configuration
@@ -388,12 +368,12 @@ curl http://localhost:8000/health
 ```json
 {
   "status": "ok",
-  "service": "straico-proxy",
+  "service": "doai-proxy",
   "timestamp": "2026-02-04T23:30:00.000Z"
 }
 ```
 
-**Note:** The `service` field reflects the provider type (e.g., `straico-proxy`, `openai-proxy`).
+**Note:** The `service` field always says `doai-proxy` now, because that's what this is. Definitely.
 
 ### GET /v1/models
 
@@ -514,7 +494,7 @@ while (true) {
 3. **Check status**:
    ```bash
    docker-compose ps
-   docker logs straico-proxy
+   docker logs doai-proxy
    ```
 
 4. **Stop container**:
@@ -527,9 +507,9 @@ while (true) {
 version: '3.8'
 
 services:
-  straico-proxy:
+  doai-proxy:
     build: .
-    container_name: straico-proxy
+    container_name: doai-proxy
     ports:
       - "8000:8000"
     env_file:
@@ -784,7 +764,7 @@ npm run lint:fix      # Auto-fix
 ### Project Structure
 
 ```
-straico-proxy/
+doai-proxy/
 ├── server.js                 # Main Express server
 ├── streaming.js              # Stream simulation logic
 ├── tools.js                  # Function calling logic
@@ -817,7 +797,9 @@ When contributing:
 
 ## Security Considerations
 
-### For Repository Users
+DOAI Proxy takes security seriously — even if the name doesn't.
+
+### For Users
 
 1. **Never commit `.env`** to version control
 2. **Use strong API keys** - Obtain your provider API key from official sources
@@ -870,87 +852,13 @@ app.use('/v1/', (req, res, next) => {
 ### Docker Production Build
 
 ```bash
-docker build -t straico-proxy:latest .
+docker build -t doai-proxy:latest .
 docker run -d \
-  --name ai-provider-prod \
+  --name doai-proxy \
   --restart unless-stopped \
   -p 8000:8000 \
   --env-file .env \
-  straico-proxy:latest
-```
-
-### systemd Service (Linux)
-
-Create `/etc/systemd/system/ai-provider-proxy.service`:
-
-```ini
-[Unit]
-Description=AI Provider Proxy
-After=network.target
-
-[Service]
-Type=simple
-User=provider
-WorkingDirectory=/opt/ai-provider-proxy
-ExecStart=/usr/bin/node /opt/ai-provider-proxy/server.js
-Restart=always
-RestartSec=10
-EnvironmentFile=/opt/ai-provider-proxy/.env
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Enable and start:
-```bash
-sudo systemctl enable ai-provider-proxy
-sudo systemctl start ai-provider-proxy
-sudo systemctl status ai-provider-proxy
-```
-
-## Security
-
-This proxy is designed to be secure and suitable for public use. However, users should be aware of the following security considerations:
-
-### For Repository Users
-
-1. **Never commit `.env`** to version control
-2. **Use strong API keys** - Obtain your provider API key from official sources (Straico, OpenAI, Anthropic, etc.)
-3. **Keep API keys secret** - Never share or commit API keys
-4. **Use HTTPS in production** - Add a reverse proxy with SSL when exposing publicly
-5. **Add authentication** - Consider implementing API key authentication for the proxy itself if deploying to public servers
-6. **Monitor logs** - Regularly check for suspicious activity in `server.log` and `requests.log`
-
-### For Repository Maintainers
-
-1. **No secrets in code** - All secrets are loaded from environment variables only
-2. **No sensitive files tracked** - `.env`, `*.log`, and other sensitive files are in `.gitignore`
-3. **Regular dependency audits** - Run `npm audit fix` regularly
-4. **Keep dependencies updated** - Use `npm update` for security patches
-
-### Recommended Security Enhancements
-
-For production deployments:
-
-```javascript
-// Add rate limiting (in server.js)
-import rateLimit from 'express-rate-limit';
-
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // 100 requests per window
-});
-
-app.use('/v1/', limiter);
-
-// Add authentication (in server.js)
-app.use('/v1/', (req, res, next) => {
-  const auth = req.headers.authorization;
-  if (!auth || auth !== `Bearer ${process.env.PROXY_API_KEY}`) {
-    return res.status(401).json({ error: 'Unauthorized' });
-  }
-  next();
-});
+  doai-proxy:latest
 ```
 
 ## License
