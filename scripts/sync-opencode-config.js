@@ -69,7 +69,7 @@ async function loadOpencodeConfig() {
   console.log(`Loading config from ${OPENCODE_CONFIG_PATH}...`);
 
   if (!existsSync(OPENCODE_CONFIG_PATH)) {
-    throw new Error(`Config file not found: ${OPENCODE_CONFIG_PATH}`);
+    return null;
   }
 
   const content = await readFile(OPENCODE_CONFIG_PATH, 'utf-8');
@@ -136,12 +136,19 @@ async function main() {
     console.log('=== Opencode Config Sync ===\n');
 
     if (!STRAICO_API_KEY) {
-      console.error('Error: STRAICO_API_KEY environment variable is required');
-      process.exit(1);
+      console.log('STRAICO_API_KEY not set, skipping config sync.');
+      return;
     }
 
     // Load existing config
     const existingConfig = await loadOpencodeConfig();
+
+    if (!existingConfig) {
+      console.log(`Config file not found at ${OPENCODE_CONFIG_PATH}`);
+      console.log('Skipping config sync.');
+      return;
+    }
+
     const existingModels = existingConfig.provider?.straico?.models || {};
 
     // Fetch current models from API
@@ -173,7 +180,6 @@ async function main() {
 
   } catch (error) {
     console.error(`\n❌ Error: ${error.message}`);
-    process.exit(1);
   }
 }
 
