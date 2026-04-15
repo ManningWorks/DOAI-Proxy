@@ -81,7 +81,13 @@ function updateConfigWithModels(config, models) {
 
   for (const model of models) {
     if (model.model_type === 'chat') {
-      validModels[model.id] = { name: model.name };
+      validModels[model.id] = {
+        name: model.name,
+        limit: {
+          context: model.word_limit,
+          output: model.max_output,
+        },
+      };
     }
   }
 

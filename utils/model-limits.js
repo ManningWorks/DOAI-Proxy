@@ -109,6 +109,15 @@ export function validateTotalContext(inputTokens, maxTokens, modelId) {
     return null;
   }
 
+  if (maxTokens && maxTokens > modelInfo.max_output) {
+    return {
+      error: {
+        message: `max_tokens (${maxTokens}) exceeds output limit (${modelInfo.max_output}) for ${modelId}`,
+        type: 'invalid_request_error',
+      },
+    };
+  }
+
   const outputTokens = maxTokens || modelInfo.max_output;
   const totalTokens = inputTokens + outputTokens;
 
