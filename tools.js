@@ -6,7 +6,21 @@ export function injectToolsIntoSystem(messages, tools) {
   }
 
   const toolDescriptions = tools
-    .map(t => `- ${t.function.name}: ${t.function.description}`)
+    .map(t => {
+      let desc = `- ${t.function.name}: ${t.function.description}`;
+      if (t.function.parameters) {
+        const params = t.function.parameters;
+        const required = params.required || [];
+        if (params.properties) {
+          const paramDocs = Object.entries(params.properties).map(([name, schema]) => {
+            const req = required.includes(name) ? ' (required)' : ' (optional)';
+            return `    - ${name}${req}: ${schema.description || schema.type || 'string'}`;
+          });
+          desc += '\n  Parameters:\n' + paramDocs.join('\n');
+        }
+      }
+      return desc;
+    })
     .join('\n');
 
   const toolInstruction = `You have access to the following tools:
@@ -21,6 +35,8 @@ ARGUMENTS: <json_arguments>
 For example:
 TOOL_CALL: bash
 ARGUMENTS: {"command": "ls -la", "description": "List files in current directory"}
+
+You MUST include ALL required parameters in the ARGUMENTS JSON. Do not omit any required parameter.
 
 Only make one tool call at a time. Wait for the result before making another tool call.
 
