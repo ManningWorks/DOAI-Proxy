@@ -1,0 +1,25 @@
+---
+layout: home
+
+hero:
+  name: "DOAI Proxy"
+  text: "Definitely OpenAI. (It's definitely not.)"
+  tagline: "An OpenAI-compatible API proxy with streaming and function calling — even when the provider supports neither."
+  actions:
+    - theme: brand
+      text: Get Started
+      link: /guides/getting-started
+    - theme: alt
+      text: API Reference
+      link: /api/endpoints
+
+features:
+  - title: Streaming Simulation
+    details: Converts non-streaming responses into SSE with simulated chunking, so your clients get real-time token delivery even from providers that don't support it.
+  - title: Function Calling
+    details: Injects tool definitions into prompts, parses AI responses, and formats them as proper tool_calls objects — making function calling work with any model.
+  - title: OpenAI Compatibility
+    details: Fully compatible API surface including /v1/chat/completions and /v1/models. Drop-in replacement for the OpenAI SDK — just change the base URL.
+  - title: Provider Architecture
+    details: Extensible provider layer designed for easy integration of new backends. Currently powered by Straico, with more providers on the roadmap.
+---

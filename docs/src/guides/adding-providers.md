@@ -1,3 +1,8 @@
+---
+title: Adding a New Provider
+description: Learn how to add a new AI provider to DOAI Proxy by implementing the BaseProvider interface, registering it in the factory, and configuring environment variables.
+---
+
 # Adding a New Provider
 
 This guide explains how to add a new AI provider to DOAI Proxy.
@@ -15,18 +20,14 @@ import { BaseProvider } from './base-provider.js';
 
 export class YourProvider extends BaseProvider {
   getType() {
-    // Return provider type string (e.g., "openai")
     return 'yourprovider';
   }
 
   getName() {
-    // Return provider instance name
     return 'yourprovider';
   }
 
   validateConfig() {
-    // Check if required env vars exist
-    // Throw error if missing
     const apiKey = process.env.YOUR_API_KEY;
     if (!apiKey) {
       throw new Error('YOUR_API_KEY is required');
@@ -35,20 +36,15 @@ export class YourProvider extends BaseProvider {
   }
 
   transformRequest(openAIRequest) {
-    // Convert OpenAI format to your provider's format
-    // Return provider request object
     const { messages, model, tools, ...otherParams } = openAIRequest;
-    
+
     return {
       model: model,
       messages: messages,
-      // ... provider-specific fields
     };
   }
 
   transformResponse(providerResponse) {
-    // Convert your provider's response to OpenAI format
-    // Return OpenAI-compatible response object
     return {
       id: providerResponse.data.id,
       object: 'chat.completion',
@@ -60,8 +56,6 @@ export class YourProvider extends BaseProvider {
   }
 
   async makeRequest(request) {
-    // Make HTTP call to your provider API
-    // Use axios or fetch
     const response = await axios.post(
       `${this.config.apiUrl}/chat/completions`,
       request,
@@ -77,15 +71,11 @@ export class YourProvider extends BaseProvider {
   }
 
   supportsStreaming() {
-    // Return true if your provider has native streaming
-    // Return false if you want to use simulated streaming
-    return true; // or false
+    return true;
   }
 
   supportsTools() {
-    // Return true if your provider has native function calling
-    // Return false if you want to use prompt injection
-    return true; // or false
+    return true;
   }
 }
 ```
@@ -106,7 +96,7 @@ export class ProviderFactory {
         return new YourProvider(env);
 
       // ... other cases
-      
+
       default:
         throw new Error(`Unknown provider type: ${providerType}`);
     }
@@ -123,6 +113,33 @@ Add environment variables to `.env.example`:
 YOUR_API_KEY=your_api_key_here
 YOUR_API_URL=https://api.yourprovider.com/v1
 YOUR_API_TIMEOUT=60000
+```
+
+## Reusing Existing Modules
+
+### Streaming
+
+If your provider doesn't support native streaming, you can reuse the [simulated streaming](/guides/streaming) module:
+
+```javascript
+import { simulateStream } from '../streaming.js';
+
+if (req.body.stream && !this.supportsStreaming()) {
+  await simulateStream(aiResponse, res, {
+    chunkSize: parseInt(process.env.STREAM_CHUNK_SIZE) || 15,
+    delay: parseInt(process.env.STREAM_DELAY_MS) || 80,
+  });
+}
+```
+
+### Tools
+
+If your provider doesn't support native function calling, you can reuse the [prompt injection](/guides/function-calling) module:
+
+```javascript
+import { injectToolsIntoSystem, parseToolCall, formatToolCallResponse } from '../tools.js';
+
+const processedMessages = injectToolsIntoSystem(messages, tools);
 ```
 
 ## Testing Your Provider
@@ -155,78 +172,27 @@ curl -X POST http://localhost:8000/v1/chat/completions \
   }'
 ```
 
-## Reusing Existing Modules
-
-### Streaming
-
-If your provider doesn't support native streaming, you can reuse the simulated streaming:
-
-```javascript
-import { simulateStream } from '../streaming.js';
-
-// In your server route handler
-if (req.body.stream && !this.supportsStreaming()) {
-  await simulateStream(aiResponse, res, {
-    chunkSize: parseInt(process.env.STREAM_CHUNK_SIZE) || 15,
-    delay: parseInt(process.env.STREAM_DELAY_MS) || 80,
-  });
-}
-```
-
-### Tools
-
-If your provider doesn't support native function calling, you can reuse the prompt injection:
-
-```javascript
-import { injectToolsIntoSystem, parseToolCall, formatToolCallResponse } from '../tools.js';
-
-// In your transformRequest()
-const processedMessages = injectToolsIntoSystem(messages, tools);
-```
-
 ## Examples
 
 See existing providers for reference:
 
-- **Straico Provider** (`providers/straico-provider.js`):
-  - Simulated streaming (no native support)
-  - Prompt injection for tools (no native support)
-  - OpenAI-compatible request/response format
-  - Good example of non-native providers
+- **Straico Provider** (`providers/straico-provider.js`) — Simulated streaming (no native support), prompt injection for tools (no native support), OpenAI-compatible request/response format. Good example of non-native providers.
 
 ## Best Practices
 
-1. **Keep provider-specific logic isolated**
-   - Don't mix providers
-   - Each provider should be self-contained
+1. **Keep provider-specific logic isolated** — Don't mix providers. Each provider should be self-contained.
 
-2. **Reuse existing utilities**
-   - Use `simulateStream()` for non-native streaming
-   - Use `injectToolsIntoSystem()` for non-native tools
-   - Use logging functions from `utils.js`
+2. **Reuse existing utilities** — Use `simulateStream()` for non-native streaming, `injectToolsIntoSystem()` for non-native tools, and logging functions from `utils.js`.
 
-3. **Handle errors gracefully**
-   - Provide clear error messages
-   - Validate configuration on startup
-   - Use try-catch for API calls
+3. **Handle errors gracefully** — Provide clear error messages, validate configuration on startup, and use try-catch for API calls.
 
-4. **Support both streaming and non-streaming**
-   - Let client decide via `stream: true/false` parameter
-   - Implement `supportsStreaming()` correctly
+4. **Support both streaming and non-streaming** — Let the client decide via the `stream: true/false` parameter. Implement `supportsStreaming()` correctly.
 
-5. **Support both tools and non-tools**
-   - Let client decide via `tools` parameter
-   - Implement `supportsTools()` correctly
+5. **Support both tools and non-tools** — Let the client decide via the `tools` parameter. Implement `supportsTools()` correctly.
 
-6. **Log requests and responses**
-   - Use `logRequest()` and `logResponse()` from utils.js
-   - Use `logProviderResponse()` with provider type
-   - Use `logError()` for errors
+6. **Log requests and responses** — Use `logRequest()` and `logResponse()` from `utils.js`, `logProviderResponse()` with provider type, and `logError()` for errors.
 
-7. **Follow OpenAI compatibility**
-   - Request format should match OpenAI's `/v1/chat/completions`
-   - Response format should match OpenAI's chat completion format
-   - SSE format should use standard `data: {...}\n\n` pattern
+7. **Follow OpenAI compatibility** — Request format should match OpenAI's `/v1/chat/completions`, response format should match OpenAI's chat completion format, and SSE format should use the standard `data: {...}\n\n` pattern.
 
 ## Testing Checklist
 
@@ -246,7 +212,3 @@ Before submitting your provider:
 - [ ] Environment variables are documented in `.env.example`
 - [ ] Provider is added to `ProviderFactory`
 - [ ] README.md is updated with provider information
-
-## Need Help?
-
-Open an issue on GitHub with your provider implementation questions.
