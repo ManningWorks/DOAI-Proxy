@@ -4,7 +4,7 @@
 
 An OpenAI-compatible API proxy that makes any AI provider speak the OpenAI protocol — complete with streaming and function calling — even when the provider supports neither.
 
-**Currently powered by Straico, with an extensible architecture for future providers.**
+**Currently only supports Straico as an AI Provider, but has an extensible architecture for future providers.**
 
 ## Quick Start
 
