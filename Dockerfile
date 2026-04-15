@@ -8,7 +8,9 @@ RUN npm ci --omit=dev
 
 COPY . .
 
-RUN chmod +x docker-entrypoint.sh
+RUN chmod +x docker-entrypoint.sh \
+    && mkdir -p logs \
+    && chown node:node logs
 
 USER node
 

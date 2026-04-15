@@ -1,5 +1,8 @@
-import { appendFile, stat, unlink, rename, readdir } from 'fs/promises';
+import { appendFile, stat, unlink, rename, readdir, mkdir } from 'fs/promises';
 import { join, dirname } from 'path';
+
+const LOG_DIR = 'logs';
+await mkdir(LOG_DIR, { recursive: true });
 
 // Log file paths (organized in dedicated logs/ directory)
 const LOG_FILE_PATHS = {
