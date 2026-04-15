@@ -148,4 +148,21 @@ Health check endpoint. No authentication required.
 
 ## GET /v1/models
 
-List available models. Currently returns empty array (not fully implemented).
+List available models. Returns all models from the configured provider with their IDs, names, and ownership info.
+
+**Response:**
+```json
+{
+  "object": "list",
+  "data": [
+    {
+      "object": "model",
+      "id": "gpt-3.5-turbo",
+      "name": "GPT-3.5 Turbo",
+      "owned_by": "straico"
+    }
+  ]
+}
+```
+
+Use the `model` `id` value in `/v1/chat/completions` requests, or omit `model` / set to `"auto"` for Straico's smart model selector.

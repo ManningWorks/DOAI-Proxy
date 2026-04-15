@@ -67,7 +67,7 @@ npm test           # Run tests
 
 ## Documentation
 
-Full documentation is available at [docs site](https://doai-proxy-docs.vercel.app) (or run `npm run docs:dev` locally):
+Full documentation is available at [docs site](https://doai-proxy.manningworks.dev) (or run `npm run docs:dev` locally):
 
 - [Getting Started](docs/src/guides/getting-started.md)
 - [Configuration Reference](docs/src/guides/configuration.md)

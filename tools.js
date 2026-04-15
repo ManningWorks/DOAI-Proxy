@@ -280,7 +280,7 @@ function createToolCallObject(toolName, args, index) {
 }
 
 function createToolCallId(index) {
-  return `call_${Date.now()}_${Math.random().toString(36).substr(2, 9)}_${index}`;
+  return `call_${Date.now()}_${Math.random().toString(36).substring(2, 11)}_${index}`;
 }
 
 export function formatToolCallResponse(toolCalls) {

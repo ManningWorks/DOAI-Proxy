@@ -4,11 +4,13 @@ WORKDIR /app
 
 COPY package.json package-lock.json* ./
 
-RUN npm ci --only=production
+RUN npm ci --omit=dev
 
 COPY . .
 
 RUN chmod +x docker-entrypoint.sh
+
+USER node
 
 EXPOSE 8000
 

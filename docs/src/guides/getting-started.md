@@ -85,7 +85,6 @@ Provider API (Straico, etc.)
 ```bash
 npm test
 npm run lint
-npm run typecheck
 ```
 
 ## Development
@@ -100,7 +99,6 @@ Run quality checks:
 
 ```bash
 npm run lint          # Lint code
-npm run typecheck     # Type check
 npm test              # Run tests
 ```
 
@@ -114,7 +112,7 @@ npm run lint:fix      # Auto-fix
 
 When contributing:
 
-1. Follow code style guidelines (see AGENTS.md)
+1. Follow code style guidelines (run `npm run lint` to check)
 2. Run quality checks before submitting
 3. Use descriptive commit messages
 4. Test thoroughly with both streaming and function calling

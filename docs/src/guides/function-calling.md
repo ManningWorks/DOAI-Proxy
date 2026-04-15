@@ -98,7 +98,7 @@ When `TOOL_RESULT_MAX_LENGTH` is set, tool result messages longer than the limit
 ## Limitations
 
 - **Format dependency**: AI must follow exact format for tool calls to be detected (for providers without native support)
-- **Single tool call**: Only one tool call per response is supported
+- **Prompt-instructed single call**: The system prompt instructs the AI to make one tool call at a time, though the parser can handle multiple sequential calls
 - **No tool execution**: Proxy doesn't execute tools, just formats tool call objects
 - **Requires AI compliance**: If AI doesn't follow format, tool calls won't be detected
 - **Multi-turn conversations with tools**: Currently only one turn (user → tool → assistant) is supported

@@ -9,7 +9,6 @@ services:
     restart: unless-stopped
     volumes:
       - ./.env:/app/.env:ro
-      - ~/.config/opencode:/root/.config/opencode
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:8000/health"]
       interval: 30s

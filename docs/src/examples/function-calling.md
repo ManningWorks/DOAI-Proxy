@@ -1,3 +1,8 @@
+---
+title: Function Calling Examples
+description: Complete working examples of function calling with DOAI Proxy
+---
+
 # Function Calling
 
 ## Basic Tool Use

@@ -25,9 +25,11 @@ async function simulateStreamNone(responseText, res) {
     throw new Error('responseText must be a string');
   }
 
+  const streamId = `chatcmpl-${Date.now()}`;
+
   if (!responseText) {
     const finalChunk = {
-      id: `chatcmpl-${Date.now()}`,
+      id: streamId,
       object: 'chat.completion.chunk',
       created: Math.floor(Date.now() / 1000),
       model: 'doai-proxy',
@@ -44,7 +46,7 @@ async function simulateStreamNone(responseText, res) {
   }
 
   const sseData = {
-    id: `chatcmpl-${Date.now()}`,
+    id: streamId,
     object: 'chat.completion.chunk',
     created: Math.floor(Date.now() / 1000),
     model: 'doai-proxy',
@@ -58,7 +60,7 @@ async function simulateStreamNone(responseText, res) {
   res.write(`data: ${JSON.stringify(sseData)}\n\n`);
 
   const finalChunk = {
-    id: `chatcmpl-${Date.now()}`,
+    id: streamId,
     object: 'chat.completion.chunk',
     created: Math.floor(Date.now() / 1000),
     model: 'doai-proxy',
@@ -79,9 +81,11 @@ async function simulateStreamSmart(responseText, res, chunkSize = 15, delay = 80
     throw new Error('responseText must be a string');
   }
 
+  const streamId = `chatcmpl-${Date.now()}`;
+
   if (!responseText) {
     const finalChunk = {
-      id: `chatcmpl-${Date.now()}`,
+      id: streamId,
       object: 'chat.completion.chunk',
       created: Math.floor(Date.now() / 1000),
       model: 'doai-proxy',
@@ -103,7 +107,7 @@ async function simulateStreamSmart(responseText, res, chunkSize = 15, delay = 80
     await delayMs(delay);
 
     const sseData = {
-      id: `chatcmpl-${Date.now()}`,
+      id: streamId,
       object: 'chat.completion.chunk',
       created: Math.floor(Date.now() / 1000),
       model: 'doai-proxy',
@@ -118,7 +122,7 @@ async function simulateStreamSmart(responseText, res, chunkSize = 15, delay = 80
   }
 
   const finalChunk = {
-    id: `chatcmpl-${Date.now()}`,
+    id: streamId,
     object: 'chat.completion.chunk',
     created: Math.floor(Date.now() / 1000),
     model: 'doai-proxy',

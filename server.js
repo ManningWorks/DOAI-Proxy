@@ -3,7 +3,7 @@ import dotenv from 'dotenv';
 import crypto from 'crypto';
 import { ProviderFactory } from './providers/index.js';
 import { simulateStream, streamToolCalls } from './streaming.js';
-import { parseToolCall, formatToolCallResponse } from './tools.js';
+import { formatToolCallResponse } from './tools.js';
 import {
   logRequest,
   logResponse,
@@ -11,11 +11,22 @@ import {
   logProviderResponse,
   logError,
   generateRequestId,
+  info,
+  warn,
+  error as logErrorFn,
+  debug,
 } from './utils.js';
+import {
+  validateRequestBody,
+  validateProviderResponse,
+  extractToolCalls,
+  handleUpstreamError,
+  setSSEHeaders,
+  writeStreamError,
+} from './request-handlers.js';
 import {
   MODEL_LIMITS,
   fetchModelLimits,
-  validateTotalContext,
 } from './utils/model-limits.js';
 
 const MODEL_LIMITS_REFRESH_INTERVAL = parseInt(process.env.MODEL_LIMITS_REFRESH_INTERVAL, 10) || 0;
@@ -114,7 +125,7 @@ let isShuttingDown = false;
 let server = null;
 let modelRefreshTimer = null;
 
-app.use(express.json({ limit: '50mb' }));
+app.use(express.json({ limit: '10mb' }));
 
 app.use(async (req, res, next) => {
   if (isShuttingDown) {
@@ -165,6 +176,7 @@ if (AUTH_MODE === AUTH_MODES.EXTERNAL) {
   app.set('trust proxy', true);
 
   const externalAuthHeader = process.env.EXTERNAL_AUTH_HEADER;
+  const externalAuthValue = process.env.EXTERNAL_AUTH_VALUE;
 
   if (externalAuthHeader) {
     app.use('/v1/', (req, res, next) => {
@@ -174,6 +186,15 @@ if (AUTH_MODE === AUTH_MODES.EXTERNAL) {
         return res.status(401).json({
           error: {
             message: `Missing ${externalAuthHeader} header`,
+            type: 'authentication_error'
+          }
+        });
+      }
+
+      if (externalAuthValue && authValue !== externalAuthValue) {
+        return res.status(401).json({
+          error: {
+            message: `Invalid ${externalAuthHeader} value`,
             type: 'authentication_error'
           }
         });
@@ -249,55 +270,28 @@ app.post('/v1/chat/completions', async (req, res) => {
 
   try {
     const { messages, model, ...otherParams } = req.body;
-    
-    // Log incoming request size for debugging
+
     const incomingSize = JSON.stringify(req.body).length;
     const incomingEstimatedTokens = Math.ceil(incomingSize / 4);
-    console.log(`[Incoming Request] Model: ${model}, Size: ${incomingSize} chars (~${incomingEstimatedTokens} tokens), Messages: ${messages.length}`);
+    info(`[Incoming Request] Model: ${model}, Size: ${incomingSize} chars (~${incomingEstimatedTokens} tokens), Messages: ${messages?.length ?? 0}`);
 
     logRequestDetails(model, messages, !!req.body.tools);
 
-    if (!messages || !Array.isArray(messages) || messages.length === 0) {
-      const errorResponse = {
-        error: {
-          message: 'messages is required and must be a non-empty array',
-          type: 'invalid_request_error',
-        },
-      };
+    const validationError = validateRequestBody(req.body);
+    if (validationError) {
       const responseTime = Date.now() - startTime;
-      await logResponse(res, 400, errorResponse, responseTime);
-      return res.status(400).json(errorResponse);
+      await logResponse(res, validationError.status, validationError.error, responseTime);
+      return res.status(validationError.status).json(validationError.error);
     }
 
-    if (!model) {
-      const errorResponse = {
-        error: {
-          message: 'model is required',
-          type: 'invalid_request_error',
-        },
-      };
-      const responseTime = Date.now() - startTime;
-      await logResponse(res, 400, errorResponse, responseTime);
-      return res.status(400).json(errorResponse);
-    }
-
-    // Validate total context against model's word_limit
-    const estimatedInputTokens = Math.ceil(JSON.stringify(messages).length / 3.5);
-    const totalContextError = validateTotalContext(estimatedInputTokens, req.body.max_tokens, model);
-    if (totalContextError) {
-      const responseTime = Date.now() - startTime;
-      await logResponse(res, 400, totalContextError, responseTime);
-      return res.status(400).json(totalContextError);
-    }
-
-    console.log(`[Validation] max_tokens valid for model ${model}`);
+    debug(`[Validation] max_tokens valid for model ${model}`);
 
     const providerRequest = await provider.transformRequest({
-      model: model,
-      messages: messages,
+      model,
+      messages,
       tools: req.body.tools,
       ...otherParams,
-      isToolRequest: true
+      isToolRequest: true,
     });
 
     const requestInfo = {
@@ -308,112 +302,57 @@ app.post('/v1/chat/completions', async (req, res) => {
       estimatedTokens: Math.ceil(JSON.stringify(providerRequest).length / 4),
     };
 
-    console.log(`[${provider.getType()} Request] ${requestInfo.model} - ${requestInfo.messageCount} messages (${requestInfo.requestSize} chars, ~${requestInfo.estimatedTokens} tokens)`);
+    info(`[${provider.getType()} Request] ${requestInfo.model} - ${requestInfo.messageCount} messages (${requestInfo.requestSize} chars, ~${requestInfo.estimatedTokens} tokens)`);
 
     const providerResponse = await provider.makeRequestWithRetry(providerRequest);
-
     logProviderResponse(providerResponse, provider.getType());
+    validateProviderResponse(providerResponse);
 
-    if (!providerResponse.data) {
-      throw new Error('No data in provider response');
-    }
-
-    if (!providerResponse.data.choices || !Array.isArray(providerResponse.data.choices) || providerResponse.data.choices.length === 0) {
-      throw new Error('No choices in provider response');
-    }
-
-    if (!providerResponse.data.choices[0].message) {
-      throw new Error('No message in first choice');
-    }
-
-    const messageContent = providerResponse.data.choices[0].message.content;
-    
-    let aiResponse = messageContent || '';
+    let aiResponse = providerResponse.data.choices[0].message.content || '';
 
     if (!aiResponse && req.body.tools) {
-      console.warn('[Empty Response] Model returned empty response with tools requested');
+      warn('[Empty Response] Model returned empty response with tools requested');
       aiResponse = '';
     }
 
-    if (req.body.tools) {
-      const toolCalls = parseToolCall(aiResponse);
-  
-      if (toolCalls) {
-        const availableToolNames = new Set(req.body.tools.map(t => t.function.name));
-        console.debug(`[Tool Validation] Available tools: ${[...availableToolNames].join(', ')}`);
-        const validToolCalls = toolCalls.filter(tc => availableToolNames.has(tc.function.name));
-        const invalidToolNames = toolCalls
-          .filter(tc => !availableToolNames.has(tc.function.name))
-          .map(tc => tc.function.name);
-        
-        if (invalidToolNames.length > 0) {
-          console.warn(`[Tool Validation] Filtered ${invalidToolNames.length} invalid tool(s): ${invalidToolNames.join(', ')}`);
-        }
-        
-        if (validToolCalls.length === 0) {
-          console.warn('[Tool Validation] No valid tool calls remaining, treating as text response');
-          if (aiResponse === '.') {
-            aiResponse = '';
-          }
-        } else {
-          console.log(`[Tool Call Detected] ${validToolCalls.map(t => t.function.name).join(', ')}`);
-          
-          const toolResponse = formatToolCallResponse(validToolCalls);
+    const validToolCalls = extractToolCalls(aiResponse, req.body.tools);
 
- 
-          if (req.body.stream) {
-            res.setHeader('Content-Type', 'text/event-stream');
-            res.setHeader('Cache-Control', 'no-cache');
-            res.setHeader('Connection', 'keep-alive');
- 
-            try {
-              await streamToolCalls(validToolCalls, res, toolResponse.id, providerResponse.data.model);
-              res.write('data: [DONE]\n\n');
-              res.end();
- 
-              const responseTime = Date.now() - startTime;
-              console.log(`[Request Complete] ${requestId} - ${responseTime}ms - Tool call response`);
- 
-              return;
-            } catch (streamError) {
-              console.error('Failed to stream AI response:', streamError);
- 
-              const errorChunk = {
-                id: `chatcmpl-${Date.now()}`,
-                object: 'chat.completion.chunk',
-                created: Math.floor(Date.now() / 1000),
-                model: providerResponse.data.model,
-                choices: [{
-                  index: 0,
-                  delta: {},
-                  finish_reason: 'error',
-                }],
-              };
- 
-              res.write(`data: ${JSON.stringify(errorChunk)}\n\n`);
-              res.write('data: [DONE]\n\n');
-              res.end();
- 
-              const responseTime = Date.now() - startTime;
-              console.log(`[Request Failed] ${requestId} - ${responseTime}ms - Tool call streaming error`);
-              return;
-            }
-          } else {
-            const responseTime = Date.now() - startTime;
-            await logResponse(res, 200, toolResponse, responseTime);
-            res.json(toolResponse);
-            return;
-          }
+    if (validToolCalls) {
+      const toolResponse = formatToolCallResponse(validToolCalls);
+
+      if (req.body.stream) {
+        setSSEHeaders(res);
+
+        try {
+          await streamToolCalls(validToolCalls, res, toolResponse.id, providerResponse.data.model);
+          res.write('data: [DONE]\n\n');
+          res.end();
+
+          const responseTime = Date.now() - startTime;
+          info(`[Request Complete] ${requestId} - ${responseTime}ms - Tool call response`);
+          return;
+        } catch (streamError) {
+          logErrorFn('Failed to stream AI response:', streamError);
+          writeStreamError(res, providerResponse.data.model);
+          const responseTime = Date.now() - startTime;
+          info(`[Request Failed] ${requestId} - ${responseTime}ms - Tool call streaming error`);
+          return;
         }
+      } else {
+        const responseTime = Date.now() - startTime;
+        await logResponse(res, 200, toolResponse, responseTime);
+        res.json(toolResponse);
+        return;
       }
     }
 
-    if (req.body.stream) {
-      res.setHeader('Content-Type', 'text/event-stream');
-      res.setHeader('Cache-Control', 'no-cache');
-      res.setHeader('Connection', 'keep-alive');
+    if (aiResponse === '.' && req.body.tools) {
+      aiResponse = '';
+    }
 
-      console.log('Simulating streaming...');
+    if (req.body.stream) {
+      setSSEHeaders(res);
+      info('Simulating streaming...');
 
       try {
         await simulateStream(aiResponse, res, {
@@ -422,94 +361,28 @@ app.post('/v1/chat/completions', async (req, res) => {
         });
 
         const responseTime = Date.now() - startTime;
-        console.log(`[Request Complete] ${requestId} - ${responseTime}ms - Streaming response (${process.env.STREAM_MODE || 'smart'} mode)`);
+        info(`[Request Complete] ${requestId} - ${responseTime}ms - Streaming response (${process.env.STREAM_MODE || 'smart'} mode)`);
         return;
       } catch (streamError) {
-        console.error('Streaming error:', streamError);
-
-        const errorChunk = {
-          id: `chatcmpl-${Date.now()}`,
-          object: 'chat.completion.chunk',
-          created: Math.floor(Date.now() / 1000),
-          model: providerResponse.data.model,
-          choices: [{
-            index: 0,
-            delta: {},
-            finish_reason: 'error',
-          }],
-        };
-
-        res.write(`data: ${JSON.stringify(errorChunk)}\n\n`);
-        res.write('data: [DONE]\n\n');
-        res.end();
-
+        logErrorFn('Streaming error:', streamError);
+        writeStreamError(res, providerResponse.data.model);
         const responseTime = Date.now() - startTime;
-        console.log(`[Request Failed] ${requestId} - ${responseTime}ms - Streaming error`);
+        info(`[Request Failed] ${requestId} - ${responseTime}ms - Streaming error`);
         return;
       }
     } else {
       const response = provider.transformResponse(providerResponse);
       const responseTime = Date.now() - startTime;
-
       await logResponse(res, 200, response, responseTime);
       res.json(response);
-
-      console.log(`[Request Complete] ${requestId} - ${responseTime}ms - Non-streaming response`);
+      info(`[Request Complete] ${requestId} - ${responseTime}ms - Non-streaming response`);
     }
 
   } catch (error) {
     const responseTime = Date.now() - startTime;
-    console.error(`[Error Processing Request] ${requestId}`);
-
-    const errorContext = {
-      requestId,
-      method: req.method,
-      path: req.path,
-      responseTime,
-    };
-
-    logError(error, errorContext);
-
-    if (error.response) {
-      await logResponse(res, error.response.status, error.response.data, responseTime);
-      res.status(error.response.status).json(error.response.data);
-    } else if (error.statusCode) {
-      const errorResponse = {
-        error: {
-          message: error.message,
-          type: 'invalid_request_error',
-        },
-      };
-      await logResponse(res, error.statusCode, errorResponse, responseTime);
-      res.status(error.statusCode).json(errorResponse);
-    } else if (error.code === 'ECONNREFUSED' || error.code === 'ENOTFOUND' || error.code === 'ECONNRESET') {
-      const errorResponse = {
-        error: {
-          message: 'Upstream service unavailable',
-          type: 'upstream_error',
-        },
-      };
-      await logResponse(res, 502, errorResponse, responseTime);
-      res.status(502).json(errorResponse);
-    } else if (error.code === 'ETIMEDOUT' || error.code === 'ECONNABORTED') {
-      const errorResponse = {
-        error: {
-          message: 'Upstream service timeout',
-          type: 'upstream_error',
-        },
-      };
-      await logResponse(res, 504, errorResponse, responseTime);
-      res.status(504).json(errorResponse);
-    } else {
-      const errorResponse = {
-        error: {
-          message: error.message,
-          type: 'internal_error',
-        },
-      };
-      await logResponse(res, 500, errorResponse, responseTime);
-      res.status(500).json(errorResponse);
-    }
+    logErrorFn(`[Error Processing Request] ${requestId}`);
+    logError(error, { requestId, method: req.method, path: req.path, responseTime });
+    await handleUpstreamError(error, res, responseTime);
   }
 });
 

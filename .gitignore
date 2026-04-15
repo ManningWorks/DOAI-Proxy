@@ -27,3 +27,8 @@ debug_outputs/
 
 # API Documentation (auto-generated)
 docs/straico-api/
+
+# Docs build artifacts
+docs/node_modules/
+docs/.vitepress/cache/
+docs/.vitepress/dist/

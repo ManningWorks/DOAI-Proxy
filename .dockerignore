@@ -1,0 +1,17 @@
+node_modules/
+docs/
+__tests__/
+.git/
+.env
+.env.*
+*.log
+logs/
+debug_outputs/
+.DS_Store
+docker-compose.yml
+.dockerignore
+Dockerfile
+.eslintrc.json
+.gitignore
+LICENSE
+README.md

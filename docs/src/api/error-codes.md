@@ -13,8 +13,7 @@ The proxy maps errors to appropriate HTTP status codes and OpenAI-compatible err
 {
   "error": {
     "message": "Description of the error",
-    "type": "error_type",
-    "code": null
+    "type": "error_type"
   }
 }
 ```
@@ -26,9 +25,8 @@ The proxy maps errors to appropriate HTTP status codes and OpenAI-compatible err
 | Status | Type | Cause |
 |--------|------|-------|
 | 400 | `invalid_request_error` | Invalid messages, missing model, context limit exceeded |
-| 401 | `invalid_request_error` | Invalid or missing API key |
-| 403 | `invalid_request_error` | Auth mode mismatch |
-| 503 | `server_error` | Server is shutting down, try again later |
+| 401 | `authentication_error` | Invalid or missing API key |
+| 503 | `service_unavailable` | Server is shutting down, try again later |
 
 ### Upstream Errors
 
@@ -52,8 +50,7 @@ The proxy validates that input + output tokens don't exceed the model's context 
 {
   "error": {
     "message": "Input too long: estimated X tokens exceeds model limit of Y tokens",
-    "type": "invalid_request_error",
-    "code": null
+    "type": "invalid_request_error"
   }
 }
 ```
@@ -79,8 +76,7 @@ During shutdown (`SIGTERM` / `SIGINT`), new requests receive `503`:
 {
   "error": {
     "message": "Server is shutting down",
-    "type": "server_error",
-    "code": null
+    "type": "service_unavailable"
   }
 }
 ```

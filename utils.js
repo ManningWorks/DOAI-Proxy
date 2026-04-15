@@ -8,8 +8,8 @@ const LOG_FILE_PATHS = {
 };
 
 // Log rotation configuration
-const MAX_LOG_SIZE = 50 * 1024 * 1024; // 50 MB per log file
-const MAX_LOG_FILES = 5; // Keep 5 backup files
+const MAX_LOG_SIZE = (parseInt(process.env.MAX_LOG_SIZE, 10) || 50) * 1024 * 1024;
+const MAX_LOG_FILES = parseInt(process.env.MAX_LOG_FILES, 10) || 5;
 
 export function delayMs(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -270,7 +270,7 @@ export function formatSSEChunk(chunk, id, model, finishReason = null) {
 }
 
 export function generateRequestId() {
-  return `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  return `req_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
 }
 
 export function truncateString(str, maxLength = 100) {
